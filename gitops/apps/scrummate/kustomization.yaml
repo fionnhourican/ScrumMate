@@ -1,0 +1,41 @@
+# Copyright (c) 2025 Telefonaktiebolaget LM Ericsson
+# ScrumMate Application Kustomization
+
+apiVersion: kustomize.toolkit.fluxcd.io/v1beta2
+kind: Kustomization
+metadata:
+  name: scrummate-app
+  namespace: flux-system
+spec:
+  interval: 5m
+  sourceRef:
+    kind: GitRepository
+    name: scrummate-repo
+  path: "./gitops/apps/scrummate"
+  prune: true
+  wait: true
+  timeout: 10m
+  dependsOn:
+    - name: infrastructure
+  healthChecks:
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: scrummate-frontend
+      namespace: scrummate-dev
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: scrummate-backend
+      namespace: scrummate-dev
+    - apiVersion: apps/v1
+      kind: StatefulSet
+      name: postgresql
+      namespace: scrummate-dev
+  postBuild:
+    substitute:
+      app_version: "latest"
+      environment: "dev"
+    substituteFrom:
+      - kind: ConfigMap
+        name: cluster-config
+      - kind: Secret
+        name: cluster-secrets

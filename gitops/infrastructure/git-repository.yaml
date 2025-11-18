@@ -1,0 +1,43 @@
+# Copyright (c) 2025 Telefonaktiebolaget LM Ericsson
+# ScrumMate GitRepository Source Configuration
+
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: GitRepository
+metadata:
+  name: scrummate-repo
+  namespace: flux-system
+spec:
+  interval: 1m
+  ref:
+    branch: main
+  url: https://github.com/GITHUB_USER/ScrumMate
+  secretRef:
+    name: flux-system
+  ignore: |
+    # Ignore non-GitOps files
+    /backend/
+    /frontend/
+    /docs/
+    /scripts/
+    *.md
+    .gitignore
+    .github/
+  include:
+    - from:
+        kind: GitRepository
+        name: scrummate-repo
+      toPath: ./gitops
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: git-ssh-key
+  namespace: flux-system
+type: Opaque
+data:
+  # SSH private key (base64 encoded)
+  # Generate with: ssh-keygen -t ed25519 -C "flux@scrummate"
+  # Add public key to GitHub repository deploy keys
+  identity: LS0tLS1CRUdJTiBPUEVOU1NIIFBSSVZBVEUgS0VZLS0tLS0K
+  # SSH known hosts (base64 encoded)
+  known_hosts: Z2l0aHViLmNvbSBzc2gtcnNhIEFBQUFCM056YUMxeWMyRUFBQUFEQVFBQkFBQUJBUUM3VnRmaTJ0VG1qUUlWU1dxUEVGUkNzN2ZYNkdIVUlIWEFGUzNZTUZGUUFBQUFCM056YUMxeWMyRUFBQUFEQVFBQkFBQUJBUUM3VnRmaTJ0VG1qUUlWU1dxUEVGUkNzN2ZYNkdIVUlIWEFGUzNZTUZGUQ==

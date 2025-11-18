@@ -1,0 +1,187 @@
+# Copyright (c) 2025 Telefonaktiebolaget LM Ericsson
+# ScrumMate Tenant-Specific Policies and Monitoring
+
+# Network Policies for tenant isolation
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: dev-tenant-isolation
+  namespace: scrummate-dev
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: scrummate-dev
+    - namespaceSelector:
+        matchLabels:
+          name: flux-system
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: scrummate-dev
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 53
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 443
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: staging-tenant-isolation
+  namespace: scrummate-staging
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: scrummate-staging
+    - namespaceSelector:
+        matchLabels:
+          name: flux-system
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: scrummate-staging
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 53
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 443
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: prod-tenant-isolation
+  namespace: scrummate-prod
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: scrummate-prod
+    - namespaceSelector:
+        matchLabels:
+          name: flux-system
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: scrummate-prod
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 53
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 443
+---
+# Resource Quotas per tenant
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: dev-tenant-quota
+  namespace: scrummate-dev
+spec:
+  hard:
+    requests.cpu: "2"
+    requests.memory: 4Gi
+    limits.cpu: "4"
+    limits.memory: 8Gi
+    pods: "10"
+    services: "5"
+    persistentvolumeclaims: "3"
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: staging-tenant-quota
+  namespace: scrummate-staging
+spec:
+  hard:
+    requests.cpu: "4"
+    requests.memory: 8Gi
+    limits.cpu: "8"
+    limits.memory: 16Gi
+    pods: "20"
+    services: "10"
+    persistentvolumeclaims: "5"
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: prod-tenant-quota
+  namespace: scrummate-prod
+spec:
+  hard:
+    requests.cpu: "8"
+    requests.memory: 16Gi
+    limits.cpu: "16"
+    limits.memory: 32Gi
+    pods: "50"
+    services: "20"
+    persistentvolumeclaims: "10"
+---
+# Monitoring ServiceMonitor for tenant metrics
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: tenant-monitoring
+  namespace: flux-system
+  labels:
+    app: flux-system
+spec:
+  selector:
+    matchLabels:
+      app: kustomize-controller
+  endpoints:
+  - port: http-prom
+    interval: 30s
+    path: /metrics
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tenant-alerts
+  namespace: flux-system
+data:
+  alerts.yaml: |
+    groups:
+    - name: tenant.rules
+      rules:
+      - alert: TenantResourceQuotaExceeded
+        expr: kube_resourcequota{resource="requests.cpu", type="used"} / kube_resourcequota{resource="requests.cpu", type="hard"} > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Tenant {{ $labels.namespace }} is approaching CPU quota limit"
+      - alert: TenantPodLimitReached
+        expr: kube_resourcequota{resource="pods", type="used"} / kube_resourcequota{resource="pods", type="hard"} > 0.8
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Tenant {{ $labels.namespace }} is approaching pod limit"

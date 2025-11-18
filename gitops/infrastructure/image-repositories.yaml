@@ -1,0 +1,35 @@
+# Copyright (c) 2025 Telefonaktiebolaget LM Ericsson
+# ScrumMate Image Repository Configuration
+
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImageRepository
+metadata:
+  name: scrummate-frontend
+  namespace: flux-system
+spec:
+  image: scrummate/frontend
+  interval: 5m
+  provider: generic
+  secretRef:
+    name: docker-registry-secret
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImageRepository
+metadata:
+  name: scrummate-backend
+  namespace: flux-system
+spec:
+  image: scrummate/backend
+  interval: 5m
+  provider: generic
+  secretRef:
+    name: docker-registry-secret
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: docker-registry-secret
+  namespace: flux-system
+type: kubernetes.io/dockerconfigjson
+data:
+  .dockerconfigjson: eyJhdXRocyI6eyJodHRwczovL2luZGV4LmRvY2tlci5pby92MS8iOnsidXNlcm5hbWUiOiJzY3J1bW1hdGUiLCJwYXNzd29yZCI6InBhc3N3b3JkIiwiYXV0aCI6ImMyTnlkVzF0WVhSbE9uQmhjM04zYjNKayJ9fX0=

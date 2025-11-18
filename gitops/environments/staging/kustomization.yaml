@@ -1,0 +1,37 @@
+# Copyright (c) 2025 Telefonaktiebolaget LM Ericsson
+# ScrumMate Staging Environment Kustomization
+
+apiVersion: kustomize.toolkit.fluxcd.io/v1beta2
+kind: Kustomization
+metadata:
+  name: scrummate-staging
+  namespace: flux-system
+spec:
+  interval: 5m
+  sourceRef:
+    kind: GitRepository
+    name: scrummate-repo
+  path: "./gitops/environments/staging"
+  prune: true
+  wait: true
+  timeout: 10m
+  targetNamespace: scrummate-staging
+  dependsOn:
+    - name: scrummate-app
+    - name: scrummate-dev
+  healthChecks:
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: scrummate-frontend
+      namespace: scrummate-staging
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: scrummate-backend
+      namespace: scrummate-staging
+  postBuild:
+    substitute:
+      environment: "staging"
+      replicas: "2"
+      cpu_limit: "1000m"
+      memory_limit: "1Gi"
+      storage_size: "20Gi"

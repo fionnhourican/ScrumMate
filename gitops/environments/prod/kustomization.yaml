@@ -1,0 +1,42 @@
+# Copyright (c) 2025 Telefonaktiebolaget LM Ericsson
+# ScrumMate Production Environment Kustomization
+
+apiVersion: kustomize.toolkit.fluxcd.io/v1beta2
+kind: Kustomization
+metadata:
+  name: scrummate-prod
+  namespace: flux-system
+spec:
+  interval: 10m
+  sourceRef:
+    kind: GitRepository
+    name: scrummate-repo
+  path: "./gitops/environments/prod"
+  prune: false
+  wait: true
+  timeout: 15m
+  targetNamespace: scrummate-prod
+  dependsOn:
+    - name: scrummate-app
+    - name: scrummate-staging
+  healthChecks:
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: scrummate-frontend
+      namespace: scrummate-prod
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: scrummate-backend
+      namespace: scrummate-prod
+    - apiVersion: apps/v1
+      kind: StatefulSet
+      name: postgresql
+      namespace: scrummate-prod
+  postBuild:
+    substitute:
+      environment: "prod"
+      replicas: "3"
+      cpu_limit: "2000m"
+      memory_limit: "2Gi"
+      storage_size: "100Gi"
+  suspend: true  # Require manual approval for production deployments
