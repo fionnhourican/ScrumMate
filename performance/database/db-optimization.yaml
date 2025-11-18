@@ -1,0 +1,316 @@
+# Copyright (c) 2025 Telefonaktiebolaget LM Ericsson
+# ScrumMate Database Optimization Configuration
+
+# PostgreSQL Primary Database with Optimizations
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgresql-primary
+  namespace: scrummate-prod
+spec:
+  serviceName: postgresql-primary
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgresql-primary
+  template:
+    metadata:
+      labels:
+        app: postgresql-primary
+    spec:
+      containers:
+      - name: postgresql
+        image: postgres:15
+        ports:
+        - containerPort: 5432
+        env:
+        - name: POSTGRES_DB
+          value: scrummate
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: postgresql-credentials
+              key: username
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgresql-credentials
+              key: password
+        - name: POSTGRES_INITDB_ARGS
+          value: "--auth-host=md5"
+        resources:
+          requests:
+            memory: 2Gi
+            cpu: 1000m
+          limits:
+            memory: 4Gi
+            cpu: 2000m
+        volumeMounts:
+        - name: postgresql-data
+          mountPath: /var/lib/postgresql/data
+        - name: postgresql-config
+          mountPath: /etc/postgresql/postgresql.conf
+          subPath: postgresql.conf
+        - name: init-scripts
+          mountPath: /docker-entrypoint-initdb.d
+      volumes:
+      - name: postgresql-config
+        configMap:
+          name: postgresql-config
+      - name: init-scripts
+        configMap:
+          name: postgresql-init-scripts
+  volumeClaimTemplates:
+  - metadata:
+      name: postgresql-data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 100Gi
+      storageClassName: fast-ssd
+---
+# PostgreSQL Read Replica
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgresql-replica
+  namespace: scrummate-prod
+spec:
+  serviceName: postgresql-replica
+  replicas: 2
+  selector:
+    matchLabels:
+      app: postgresql-replica
+  template:
+    metadata:
+      labels:
+        app: postgresql-replica
+    spec:
+      containers:
+      - name: postgresql
+        image: postgres:15
+        ports:
+        - containerPort: 5432
+        env:
+        - name: PGUSER
+          value: postgres
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgresql-credentials
+              key: password
+        - name: POSTGRES_MASTER_SERVICE
+          value: postgresql-primary
+        - name: POSTGRES_REPLICA_USER
+          value: replica
+        - name: POSTGRES_REPLICA_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgresql-credentials
+              key: replica-password
+        command:
+        - /bin/bash
+        - -c
+        - |
+          # Wait for primary to be ready
+          until pg_isready -h $POSTGRES_MASTER_SERVICE -p 5432; do
+            echo "Waiting for primary database..."
+            sleep 2
+          done
+          
+          # Create base backup from primary
+          pg_basebackup -h $POSTGRES_MASTER_SERVICE -D /var/lib/postgresql/data -U replica -v -P -W
+          
+          # Configure as replica
+          echo "standby_mode = 'on'" >> /var/lib/postgresql/data/recovery.conf
+          echo "primary_conninfo = 'host=$POSTGRES_MASTER_SERVICE port=5432 user=replica'" >> /var/lib/postgresql/data/recovery.conf
+          
+          # Start PostgreSQL
+          postgres
+        resources:
+          requests:
+            memory: 1Gi
+            cpu: 500m
+          limits:
+            memory: 2Gi
+            cpu: 1000m
+        volumeMounts:
+        - name: postgresql-replica-data
+          mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+  - metadata:
+      name: postgresql-replica-data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 100Gi
+      storageClassName: fast-ssd
+---
+# PostgreSQL Configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgresql-config
+  namespace: scrummate-prod
+data:
+  postgresql.conf: |
+    # Connection settings
+    max_connections = 200
+    shared_buffers = 1GB
+    effective_cache_size = 3GB
+    work_mem = 16MB
+    maintenance_work_mem = 256MB
+    
+    # WAL settings
+    wal_level = replica
+    max_wal_senders = 3
+    wal_keep_segments = 64
+    
+    # Performance settings
+    random_page_cost = 1.1
+    effective_io_concurrency = 200
+    checkpoint_completion_target = 0.9
+    wal_buffers = 16MB
+    default_statistics_target = 100
+    
+    # Logging
+    log_destination = 'stderr'
+    logging_collector = on
+    log_directory = 'pg_log'
+    log_filename = 'postgresql-%Y-%m-%d_%H%M%S.log'
+    log_min_duration_statement = 1000
+    log_checkpoints = on
+    log_connections = on
+    log_disconnections = on
+    log_lock_waits = on
+    
+    # Replication
+    hot_standby = on
+    hot_standby_feedback = on
+---
+# Database Initialization Scripts
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgresql-init-scripts
+  namespace: scrummate-prod
+data:
+  01-create-replica-user.sql: |
+    CREATE USER replica REPLICATION LOGIN CONNECTION LIMIT 3 ENCRYPTED PASSWORD 'replica_password';
+  
+  02-create-indexes.sql: |
+    -- Performance indexes for ScrumMate
+    
+    -- Users table indexes
+    CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_users_email ON users(email);
+    CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_users_created_at ON users(created_at);
+    
+    -- Daily entries indexes
+    CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_daily_entries_user_id ON daily_entries(user_id);
+    CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_daily_entries_entry_date ON daily_entries(entry_date);
+    CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_daily_entries_user_date ON daily_entries(user_id, entry_date);
+    CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_daily_entries_created_at ON daily_entries(created_at);
+    
+    -- Weekly summaries indexes
+    CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_weekly_summaries_user_id ON weekly_summaries(user_id);
+    CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_weekly_summaries_week_start ON weekly_summaries(week_start);
+    CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_weekly_summaries_user_week ON weekly_summaries(user_id, week_start);
+    
+    -- Monthly reports indexes
+    CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_monthly_reports_user_id ON monthly_reports(user_id);
+    CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_monthly_reports_month_year ON monthly_reports(month, year);
+    CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_monthly_reports_user_month_year ON monthly_reports(user_id, month, year);
+    
+    -- Full-text search indexes
+    CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_daily_entries_yesterday_work_fts 
+    ON daily_entries USING gin(to_tsvector('english', yesterday_work));
+    
+    CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_daily_entries_today_plan_fts 
+    ON daily_entries USING gin(to_tsvector('english', today_plan));
+  
+  03-create-connection-pool.sql: |
+    -- Connection pooling configuration
+    ALTER SYSTEM SET shared_preload_libraries = 'pg_stat_statements';
+    SELECT pg_reload_conf();
+---
+# Connection Pool Service (PgBouncer)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pgbouncer
+  namespace: scrummate-prod
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: pgbouncer
+  template:
+    metadata:
+      labels:
+        app: pgbouncer
+    spec:
+      containers:
+      - name: pgbouncer
+        image: pgbouncer/pgbouncer:latest
+        ports:
+        - containerPort: 5432
+        env:
+        - name: DATABASES_HOST
+          value: postgresql-primary
+        - name: DATABASES_PORT
+          value: "5432"
+        - name: DATABASES_USER
+          valueFrom:
+            secretKeyRef:
+              name: postgresql-credentials
+              key: username
+        - name: DATABASES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgresql-credentials
+              key: password
+        - name: DATABASES_DBNAME
+          value: scrummate
+        - name: POOL_MODE
+          value: transaction
+        - name: MAX_CLIENT_CONN
+          value: "1000"
+        - name: DEFAULT_POOL_SIZE
+          value: "25"
+        - name: MIN_POOL_SIZE
+          value: "5"
+        - name: RESERVE_POOL_SIZE
+          value: "5"
+        - name: SERVER_LIFETIME
+          value: "3600"
+        - name: SERVER_IDLE_TIMEOUT
+          value: "600"
+        resources:
+          requests:
+            memory: 128Mi
+            cpu: 100m
+          limits:
+            memory: 256Mi
+            cpu: 200m
+        volumeMounts:
+        - name: pgbouncer-config
+          mountPath: /etc/pgbouncer
+      volumes:
+      - name: pgbouncer-config
+        configMap:
+          name: pgbouncer-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pgbouncer
+  namespace: scrummate-prod
+spec:
+  selector:
+    app: pgbouncer
+  ports:
+  - port: 5432
+    targetPort: 5432
+  type: ClusterIP

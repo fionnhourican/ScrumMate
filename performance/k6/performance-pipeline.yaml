@@ -1,0 +1,182 @@
+# Copyright (c) 2025 Telefonaktiebolaget LM Ericsson
+# ScrumMate Performance Testing Pipeline
+
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: performance-tests
+  namespace: scrummate-dev
+spec:
+  schedule: "0 2 * * *"  # Daily at 2 AM
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: k6-performance
+            image: grafana/k6:latest
+            command:
+            - /bin/sh
+            - -c
+            - |
+              # Run smoke test first
+              k6 run --env BASE_URL=${BASE_URL} /tests/load-tests.js --config /tests/smoke-config.json
+              
+              # Run load test if smoke test passes
+              if [ $? -eq 0 ]; then
+                k6 run --env BASE_URL=${BASE_URL} /tests/load-tests.js --out influxdb=${INFLUXDB_URL}
+              else
+                echo "Smoke test failed, skipping load test"
+                exit 1
+              fi
+              
+              # Run stress test
+              k6 run --env BASE_URL=${BASE_URL} /tests/load-tests.js --config /tests/stress-config.json
+            env:
+            - name: BASE_URL
+              value: "http://scrummate-backend.scrummate-dev:8080"
+            - name: INFLUXDB_URL
+              value: "http://influxdb.monitoring:8086/k6"
+            volumeMounts:
+            - name: test-scripts
+              mountPath: /tests
+            resources:
+              requests:
+                memory: 256Mi
+                cpu: 250m
+              limits:
+                memory: 512Mi
+                cpu: 500m
+          volumes:
+          - name: test-scripts
+            configMap:
+              name: k6-test-scripts
+          restartPolicy: OnFailure
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k6-test-scripts
+  namespace: scrummate-dev
+data:
+  load-tests.js: |
+    // Main load test script content (from above)
+  
+  smoke-config.json: |
+    {
+      "scenarios": {
+        "smoke": {
+          "executor": "constant-vus",
+          "vus": 1,
+          "duration": "30s"
+        }
+      },
+      "thresholds": {
+        "http_req_duration": ["p(95)<200"],
+        "http_req_failed": ["rate<0.01"]
+      }
+    }
+  
+  stress-config.json: |
+    {
+      "scenarios": {
+        "stress": {
+          "executor": "ramping-vus",
+          "startVUs": 0,
+          "stages": [
+            { "duration": "1m", "target": 200 },
+            { "duration": "3m", "target": 200 },
+            { "duration": "1m", "target": 0 }
+          ]
+        }
+      },
+      "thresholds": {
+        "http_req_duration": ["p(95)<1000"],
+        "http_req_failed": ["rate<0.05"]
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: performance-monitor
+  namespace: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: performance-monitor
+  template:
+    metadata:
+      labels:
+        app: performance-monitor
+    spec:
+      containers:
+      - name: performance-monitor
+        image: python:3.9-slim
+        command:
+        - python
+        - -c
+        - |
+          import requests
+          import json
+          import time
+          import os
+          
+          INFLUXDB_URL = os.getenv('INFLUXDB_URL', 'http://influxdb:8086')
+          WEBHOOK_URL = os.getenv('WEBHOOK_URL', '')
+          
+          def check_performance_regression():
+              # Query recent performance data
+              query = """
+              SELECT mean("value") FROM "http_req_duration" 
+              WHERE time >= now() - 24h 
+              GROUP BY time(1h)
+              """
+              
+              response = requests.get(f"{INFLUXDB_URL}/query", params={'q': query})
+              data = response.json()
+              
+              if not data.get('results', [{}])[0].get('series'):
+                  print("No performance data found")
+                  return
+              
+              values = data['results'][0]['series'][0]['values']
+              recent_avg = sum(float(v[1]) for v in values[-3:]) / 3  # Last 3 hours avg
+              baseline_avg = sum(float(v[1]) for v in values[:-3]) / len(values[:-3])  # Earlier avg
+              
+              regression_threshold = 1.2  # 20% increase
+              
+              if recent_avg > baseline_avg * regression_threshold:
+                  alert = {
+                      'alert': 'Performance Regression Detected',
+                      'recent_avg': recent_avg,
+                      'baseline_avg': baseline_avg,
+                      'regression_percent': ((recent_avg - baseline_avg) / baseline_avg) * 100
+                  }
+                  
+                  if WEBHOOK_URL:
+                      requests.post(WEBHOOK_URL, json=alert)
+                  
+                  print(f"ALERT: Performance regression detected - {alert}")
+              else:
+                  print(f"Performance OK - Recent: {recent_avg}ms, Baseline: {baseline_avg}ms")
+          
+          while True:
+              try:
+                  check_performance_regression()
+              except Exception as e:
+                  print(f"Error checking performance: {e}")
+              time.sleep(3600)  # Check every hour
+        env:
+        - name: INFLUXDB_URL
+          value: "http://influxdb.monitoring:8086"
+        - name: WEBHOOK_URL
+          value: "https://alerts.company.com/performance"
+        resources:
+          requests:
+            memory: 128Mi
+            cpu: 100m
+          limits:
+            memory: 256Mi
+            cpu: 200m

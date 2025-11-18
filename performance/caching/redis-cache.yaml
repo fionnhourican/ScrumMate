@@ -1,0 +1,363 @@
+# Copyright (c) 2025 Telefonaktiebolaget LM Ericsson
+# ScrumMate Caching Configuration with Redis
+
+# Redis Cluster for Application Caching
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis-cluster
+  namespace: scrummate-prod
+spec:
+  serviceName: redis-cluster
+  replicas: 6
+  selector:
+    matchLabels:
+      app: redis-cluster
+  template:
+    metadata:
+      labels:
+        app: redis-cluster
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        ports:
+        - containerPort: 6379
+        - containerPort: 16379
+        command:
+        - redis-server
+        - /etc/redis/redis.conf
+        - --cluster-enabled
+        - "yes"
+        - --cluster-config-file
+        - nodes.conf
+        - --cluster-node-timeout
+        - "5000"
+        - --appendonly
+        - "yes"
+        resources:
+          requests:
+            memory: 512Mi
+            cpu: 250m
+          limits:
+            memory: 1Gi
+            cpu: 500m
+        volumeMounts:
+        - name: redis-data
+          mountPath: /data
+        - name: redis-config
+          mountPath: /etc/redis
+      volumes:
+      - name: redis-config
+        configMap:
+          name: redis-config
+  volumeClaimTemplates:
+  - metadata:
+      name: redis-data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 10Gi
+      storageClassName: fast-ssd
+---
+# Redis Configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-config
+  namespace: scrummate-prod
+data:
+  redis.conf: |
+    # Network
+    bind 0.0.0.0
+    port 6379
+    tcp-backlog 511
+    timeout 0
+    tcp-keepalive 300
+    
+    # General
+    daemonize no
+    supervised no
+    pidfile /var/run/redis_6379.pid
+    loglevel notice
+    logfile ""
+    databases 16
+    
+    # Memory management
+    maxmemory 800mb
+    maxmemory-policy allkeys-lru
+    maxmemory-samples 5
+    
+    # Persistence
+    save 900 1
+    save 300 10
+    save 60 10000
+    stop-writes-on-bgsave-error yes
+    rdbcompression yes
+    rdbchecksum yes
+    dbfilename dump.rdb
+    dir ./
+    
+    # Append only file
+    appendonly yes
+    appendfilename "appendonly.aof"
+    appendfsync everysec
+    no-appendfsync-on-rewrite no
+    auto-aof-rewrite-percentage 100
+    auto-aof-rewrite-min-size 64mb
+    aof-load-truncated yes
+    
+    # Cluster
+    cluster-enabled yes
+    cluster-config-file nodes-6379.conf
+    cluster-node-timeout 15000
+    cluster-replica-validity-factor 10
+    cluster-migration-barrier 1
+    cluster-require-full-coverage yes
+---
+# Redis Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-cluster
+  namespace: scrummate-prod
+spec:
+  selector:
+    app: redis-cluster
+  ports:
+  - name: redis
+    port: 6379
+    targetPort: 6379
+  - name: cluster
+    port: 16379
+    targetPort: 16379
+  clusterIP: None
+---
+# Redis Sentinel for High Availability
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-sentinel
+  namespace: scrummate-prod
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: redis-sentinel
+  template:
+    metadata:
+      labels:
+        app: redis-sentinel
+    spec:
+      containers:
+      - name: redis-sentinel
+        image: redis:7-alpine
+        ports:
+        - containerPort: 26379
+        command:
+        - redis-sentinel
+        - /etc/redis/sentinel.conf
+        resources:
+          requests:
+            memory: 128Mi
+            cpu: 100m
+          limits:
+            memory: 256Mi
+            cpu: 200m
+        volumeMounts:
+        - name: sentinel-config
+          mountPath: /etc/redis
+      volumes:
+      - name: sentinel-config
+        configMap:
+          name: redis-sentinel-config
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-sentinel-config
+  namespace: scrummate-prod
+data:
+  sentinel.conf: |
+    port 26379
+    sentinel monitor mymaster redis-cluster 6379 2
+    sentinel down-after-milliseconds mymaster 5000
+    sentinel failover-timeout mymaster 10000
+    sentinel parallel-syncs mymaster 1
+---
+# Cache Configuration for Application
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cache-config
+  namespace: scrummate-prod
+data:
+  cache-settings.yaml: |
+    cache:
+      redis:
+        cluster:
+          nodes:
+            - redis-cluster-0.redis-cluster:6379
+            - redis-cluster-1.redis-cluster:6379
+            - redis-cluster-2.redis-cluster:6379
+            - redis-cluster-3.redis-cluster:6379
+            - redis-cluster-4.redis-cluster:6379
+            - redis-cluster-5.redis-cluster:6379
+        timeout: 2000
+        max-redirects: 3
+        max-total: 100
+        max-idle: 20
+        min-idle: 5
+      
+      strategies:
+        # API Response Caching
+        api-responses:
+          ttl: 300  # 5 minutes
+          patterns:
+            - "/api/v1/entries"
+            - "/api/v1/summaries/weekly"
+            - "/api/v1/reports/monthly"
+        
+        # Database Query Caching
+        database-queries:
+          ttl: 600  # 10 minutes
+          patterns:
+            - "user-entries-*"
+            - "weekly-summary-*"
+            - "monthly-report-*"
+        
+        # Session Caching
+        sessions:
+          ttl: 1800  # 30 minutes
+          prefix: "session:"
+        
+        # Rate Limiting
+        rate-limits:
+          ttl: 3600  # 1 hour
+          prefix: "rate-limit:"
+---
+# CDN Configuration (CloudFront-like)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cdn-config
+  namespace: scrummate-prod
+data:
+  nginx.conf: |
+    upstream backend {
+        server scrummate-backend:8080;
+    }
+    
+    server {
+        listen 80;
+        server_name scrummate.company.com;
+        
+        # Static asset caching
+        location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+            expires 1y;
+            add_header Cache-Control "public, immutable";
+            add_header Vary Accept-Encoding;
+            
+            # Gzip compression
+            gzip on;
+            gzip_vary on;
+            gzip_min_length 1024;
+            gzip_types
+                text/plain
+                text/css
+                text/xml
+                text/javascript
+                application/javascript
+                application/xml+rss
+                application/json;
+        }
+        
+        # API response caching
+        location /api/ {
+            proxy_pass http://backend;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            
+            # Cache GET requests for 5 minutes
+            location ~* ^/api/v1/(entries|summaries|reports)$ {
+                if ($request_method = GET) {
+                    add_header X-Cache-Status $upstream_cache_status;
+                    proxy_cache api_cache;
+                    proxy_cache_valid 200 5m;
+                    proxy_cache_key "$scheme$request_method$host$request_uri";
+                }
+                proxy_pass http://backend;
+            }
+        }
+        
+        # Frontend caching
+        location / {
+            proxy_pass http://scrummate-frontend:80;
+            proxy_set_header Host $host;
+            
+            # Cache HTML for 1 hour
+            location ~* \.html$ {
+                expires 1h;
+                add_header Cache-Control "public";
+            }
+        }
+    }
+    
+    # Cache configuration
+    proxy_cache_path /var/cache/nginx/api levels=1:2 keys_zone=api_cache:10m max_size=1g inactive=60m use_temp_path=off;
+---
+# CDN Proxy Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cdn-proxy
+  namespace: scrummate-prod
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: cdn-proxy
+  template:
+    metadata:
+      labels:
+        app: cdn-proxy
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:alpine
+        ports:
+        - containerPort: 80
+        resources:
+          requests:
+            memory: 128Mi
+            cpu: 100m
+          limits:
+            memory: 256Mi
+            cpu: 200m
+        volumeMounts:
+        - name: nginx-config
+          mountPath: /etc/nginx/conf.d
+        - name: cache-volume
+          mountPath: /var/cache/nginx
+      volumes:
+      - name: nginx-config
+        configMap:
+          name: cdn-config
+      - name: cache-volume
+        emptyDir:
+          sizeLimit: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cdn-proxy
+  namespace: scrummate-prod
+spec:
+  selector:
+    app: cdn-proxy
+  ports:
+  - port: 80
+    targetPort: 80
+  type: LoadBalancer
