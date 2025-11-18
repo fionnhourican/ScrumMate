@@ -1,0 +1,232 @@
+{
+  "application": "scrummate",
+  "name": "Deploy Pipeline",
+  "description": "Deploy ScrumMate application to environments",
+  "parameterConfig": [
+    {
+      "name": "environment",
+      "description": "Target environment",
+      "default": "dev",
+      "hasOptions": true,
+      "options": [
+        {"value": "dev"},
+        {"value": "staging"},
+        {"value": "prod"}
+      ]
+    },
+    {
+      "name": "imageTag",
+      "description": "Docker image tag to deploy",
+      "default": "latest"
+    }
+  ],
+  "triggers": [
+    {
+      "enabled": true,
+      "type": "pipeline",
+      "application": "scrummate",
+      "pipeline": "Build Pipeline",
+      "status": ["successful"],
+      "runAsUser": "spinnaker"
+    }
+  ],
+  "stages": [
+    {
+      "name": "Deploy to Development",
+      "type": "deployManifest",
+      "refId": "1",
+      "requisiteStageRefIds": [],
+      "account": "scrummate-cluster",
+      "cloudProvider": "kubernetes",
+      "manifestArtifactAccount": "embedded-artifact",
+      "manifestArtifactId": "deployment-manifest",
+      "moniker": {
+        "app": "scrummate"
+      },
+      "skipExpressionEvaluation": false,
+      "source": "text",
+      "manifests": [
+        {
+          "apiVersion": "apps/v1",
+          "kind": "Deployment",
+          "metadata": {
+            "name": "scrummate-${parameters.component}",
+            "namespace": "scrummate-${parameters.environment}"
+          },
+          "spec": {
+            "replicas": "${ parameters.environment == 'prod' ? 3 : (parameters.environment == 'staging' ? 2 : 1) }",
+            "selector": {
+              "matchLabels": {
+                "app": "scrummate-${parameters.component}"
+              }
+            },
+            "template": {
+              "metadata": {
+                "labels": {
+                  "app": "scrummate-${parameters.component}"
+                }
+              },
+              "spec": {
+                "containers": [
+                  {
+                    "name": "scrummate-${parameters.component}",
+                    "image": "scrummate/${parameters.component}:${parameters.imageTag}",
+                    "ports": [
+                      {
+                        "containerPort": "${ parameters.component == 'frontend' ? 3000 : 8080 }"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "stageEnabled": {
+        "expression": "parameters.environment == 'dev'",
+        "type": "expression"
+      }
+    },
+    {
+      "name": "Manual Approval - Staging",
+      "type": "manualJudgment",
+      "refId": "2",
+      "requisiteStageRefIds": ["1"],
+      "instructions": "Approve deployment to staging environment",
+      "judgmentInputs": [
+        {
+          "value": "approve"
+        },
+        {
+          "value": "reject"
+        }
+      ],
+      "stageEnabled": {
+        "expression": "parameters.environment == 'staging'",
+        "type": "expression"
+      }
+    },
+    {
+      "name": "Deploy to Staging",
+      "type": "deployManifest",
+      "refId": "3",
+      "requisiteStageRefIds": ["2"],
+      "account": "scrummate-cluster",
+      "cloudProvider": "kubernetes",
+      "source": "text",
+      "manifests": [
+        {
+          "apiVersion": "apps/v1",
+          "kind": "Deployment",
+          "metadata": {
+            "name": "scrummate-${parameters.component}",
+            "namespace": "scrummate-staging"
+          },
+          "spec": {
+            "replicas": 2,
+            "selector": {
+              "matchLabels": {
+                "app": "scrummate-${parameters.component}"
+              }
+            },
+            "template": {
+              "metadata": {
+                "labels": {
+                  "app": "scrummate-${parameters.component}"
+                }
+              },
+              "spec": {
+                "containers": [
+                  {
+                    "name": "scrummate-${parameters.component}",
+                    "image": "scrummate/${parameters.component}:${parameters.imageTag}",
+                    "ports": [
+                      {
+                        "containerPort": "${ parameters.component == 'frontend' ? 3000 : 8080 }"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "stageEnabled": {
+        "expression": "parameters.environment == 'staging'",
+        "type": "expression"
+      }
+    },
+    {
+      "name": "Manual Approval - Production",
+      "type": "manualJudgment",
+      "refId": "4",
+      "requisiteStageRefIds": ["3"],
+      "instructions": "Approve deployment to production environment",
+      "judgmentInputs": [
+        {
+          "value": "approve"
+        },
+        {
+          "value": "reject"
+        }
+      ],
+      "stageEnabled": {
+        "expression": "parameters.environment == 'prod'",
+        "type": "expression"
+      }
+    },
+    {
+      "name": "Deploy to Production",
+      "type": "deployManifest",
+      "refId": "5",
+      "requisiteStageRefIds": ["4"],
+      "account": "scrummate-cluster",
+      "cloudProvider": "kubernetes",
+      "source": "text",
+      "manifests": [
+        {
+          "apiVersion": "apps/v1",
+          "kind": "Deployment",
+          "metadata": {
+            "name": "scrummate-${parameters.component}",
+            "namespace": "scrummate-prod"
+          },
+          "spec": {
+            "replicas": 3,
+            "selector": {
+              "matchLabels": {
+                "app": "scrummate-${parameters.component}"
+              }
+            },
+            "template": {
+              "metadata": {
+                "labels": {
+                  "app": "scrummate-${parameters.component}"
+                }
+              },
+              "spec": {
+                "containers": [
+                  {
+                    "name": "scrummate-${parameters.component}",
+                    "image": "scrummate/${parameters.component}:${parameters.imageTag}",
+                    "ports": [
+                      {
+                        "containerPort": "${ parameters.component == 'frontend' ? 3000 : 8080 }"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "stageEnabled": {
+        "expression": "parameters.environment == 'prod'",
+        "type": "expression"
+      }
+    }
+  ]
+}

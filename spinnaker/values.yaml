@@ -1,0 +1,99 @@
+# Copyright (c) 2025 Telefonaktiebolaget LM Ericsson
+# ScrumMate Spinnaker Configuration
+
+halyard:
+  spinnakerVersion: 1.32.3
+  image:
+    repository: us-docker.pkg.dev/spinnaker-community/docker/halyard
+    tag: 1.59.0
+
+# Spinnaker services configuration
+spinnakerConfig:
+  config:
+    version: 1.32.3
+    persistentStorage:
+      persistentStoreType: s3
+      s3:
+        bucket: scrummate-spinnaker-config
+        rootFolder: front50
+    
+    providers:
+      kubernetes:
+        enabled: true
+        accounts:
+        - name: scrummate-cluster
+          requiredGroupMembership: []
+          providerVersion: V2
+          permissions: {}
+          dockerRegistries: []
+          configureImagePullSecrets: true
+          cacheThreads: 1
+          namespaces: [scrummate-dev, scrummate-staging, scrummate-prod]
+          omitNamespaces: []
+          kinds: []
+          omitKinds: []
+          customResources: []
+          cachingPolicies: []
+          oAuthScopes: []
+          onlySpinnakerManaged: false
+    
+    deploymentEnvironment:
+      size: SMALL
+      type: Distributed
+      accountName: scrummate-cluster
+      updateVersions: true
+      consul:
+        enabled: false
+      vault:
+        enabled: false
+      
+    security:
+      authn:
+        oauth2:
+          enabled: false
+        saml:
+          enabled: false
+        ldap:
+          enabled: false
+        x509:
+          enabled: false
+        enabled: false
+      authz:
+        enabled: false
+
+# Service-specific configurations
+gate:
+  config:
+    server:
+      port: 8084
+  service:
+    type: LoadBalancer
+    port: 8084
+
+deck:
+  config:
+    server:
+      port: 9000
+  service:
+    type: LoadBalancer
+    port: 9000
+
+orca:
+  config:
+    server:
+      port: 8083
+
+clouddriver:
+  config:
+    server:
+      port: 7002
+
+front50:
+  config:
+    server:
+      port: 8080
+
+echo:
+  config:
+    server:
+      port: 8089

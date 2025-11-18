@@ -1,0 +1,32 @@
+{
+  "name": "scrummate",
+  "description": "ScrumMate - Agile work tracking application",
+  "email": "devops@company.com",
+  "instancePort": 8080,
+  "user": "spinnaker",
+  "cloudProviders": ["kubernetes"],
+  "providerSettings": {
+    "kubernetes": {
+      "useSourceCapacity": true
+    }
+  },
+  "permissions": {
+    "READ": ["scrummate-dev-team", "scrummate-ops-team"],
+    "WRITE": ["scrummate-ops-team"],
+    "EXECUTE": ["scrummate-ops-team"]
+  },
+  "dataSources": {
+    "enabled": ["canaryConfigs", "canaryAnalysis"],
+    "disabled": []
+  },
+  "trafficGuards": [],
+  "chaos": {
+    "enabled": false
+  },
+  "platformHealthOnly": false,
+  "platformHealthOnlyShowOverride": false,
+  "enableRestartRunningExecutions": false,
+  "repoType": "github",
+  "repoProjectKey": "ScrumMate",
+  "repoSlug": "ScrumMate"
+}

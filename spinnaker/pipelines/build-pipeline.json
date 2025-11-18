@@ -1,0 +1,123 @@
+{
+  "application": "scrummate",
+  "name": "Build Pipeline",
+  "description": "Build and test ScrumMate application components",
+  "parameterConfig": [
+    {
+      "name": "component",
+      "description": "Component to build (frontend/backend)",
+      "default": "backend",
+      "hasOptions": true,
+      "options": [
+        {"value": "frontend"},
+        {"value": "backend"}
+      ]
+    },
+    {
+      "name": "branch",
+      "description": "Git branch to build",
+      "default": "main"
+    }
+  ],
+  "triggers": [
+    {
+      "enabled": true,
+      "type": "git",
+      "source": "github",
+      "project": "ScrumMate",
+      "slug": "ScrumMate",
+      "branch": "main",
+      "runAsUser": "spinnaker"
+    }
+  ],
+  "stages": [
+    {
+      "name": "Checkout Code",
+      "type": "jenkins",
+      "refId": "1",
+      "requisiteStageRefIds": [],
+      "job": "checkout-code",
+      "master": "jenkins-master",
+      "parameters": {
+        "BRANCH": "${parameters.branch}",
+        "COMPONENT": "${parameters.component}"
+      }
+    },
+    {
+      "name": "Build Application",
+      "type": "jenkins",
+      "refId": "2",
+      "requisiteStageRefIds": ["1"],
+      "job": "build-${parameters.component}",
+      "master": "jenkins-master",
+      "parameters": {
+        "BRANCH": "${parameters.branch}"
+      }
+    },
+    {
+      "name": "Run Tests",
+      "type": "jenkins",
+      "refId": "3",
+      "requisiteStageRefIds": ["2"],
+      "job": "test-${parameters.component}",
+      "master": "jenkins-master",
+      "parameters": {
+        "BRANCH": "${parameters.branch}"
+      }
+    },
+    {
+      "name": "Build Docker Image",
+      "type": "jenkins",
+      "refId": "4",
+      "requisiteStageRefIds": ["3"],
+      "job": "build-docker-image",
+      "master": "jenkins-master",
+      "parameters": {
+        "COMPONENT": "${parameters.component}",
+        "BRANCH": "${parameters.branch}",
+        "BUILD_NUMBER": "${trigger.buildNumber}"
+      }
+    },
+    {
+      "name": "Security Scan",
+      "type": "jenkins",
+      "refId": "5",
+      "requisiteStageRefIds": ["4"],
+      "job": "security-scan",
+      "master": "jenkins-master",
+      "parameters": {
+        "IMAGE": "scrummate/${parameters.component}:${trigger.buildNumber}"
+      }
+    },
+    {
+      "name": "Publish Artifacts",
+      "type": "jenkins",
+      "refId": "6",
+      "requisiteStageRefIds": ["5"],
+      "job": "publish-artifacts",
+      "master": "jenkins-master",
+      "parameters": {
+        "COMPONENT": "${parameters.component}",
+        "BUILD_NUMBER": "${trigger.buildNumber}"
+      }
+    }
+  ],
+  "expectedArtifacts": [
+    {
+      "defaultArtifact": {
+        "customKind": true,
+        "id": "docker-image"
+      },
+      "displayName": "Docker Image",
+      "id": "docker-image",
+      "matchArtifact": {
+        "artifactAccount": "docker-registry",
+        "id": "docker-image-match",
+        "name": "scrummate/${parameters.component}",
+        "type": "docker/image"
+      },
+      "useDefaultArtifact": false,
+      "usePriorArtifact": false
+    }
+  ]
+}
