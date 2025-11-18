@@ -1,0 +1,320 @@
+# Copyright (c) 2025 Telefonaktiebolaget LM Ericsson
+# ScrumMate - Backup and Recovery Configuration
+
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: database-backup
+  namespace: scrummate-prod
+spec:
+  schedule: "0 2 * * *"  # Daily at 2 AM
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: pg-backup
+            image: postgres:15
+            command:
+            - /bin/bash
+            - -c
+            - |
+              TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+              BACKUP_FILE="scrummate_backup_${TIMESTAMP}.sql"
+              
+              # Create backup
+              pg_dump -h scrummate-db -U postgres -d scrummate > /backup/${BACKUP_FILE}
+              
+              # Compress backup
+              gzip /backup/${BACKUP_FILE}
+              
+              # Upload to S3 (or persistent storage)
+              aws s3 cp /backup/${BACKUP_FILE}.gz s3://scrummate-backups/daily/${BACKUP_FILE}.gz
+              
+              # Cleanup local files older than 7 days
+              find /backup -name "*.gz" -mtime +7 -delete
+              
+              # Validate backup
+              if [ -f "/backup/${BACKUP_FILE}.gz" ]; then
+                echo "Backup completed successfully: ${BACKUP_FILE}.gz"
+              else
+                echo "Backup failed!"
+                exit 1
+              fi
+            env:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: password
+            volumeMounts:
+            - name: backup-storage
+              mountPath: /backup
+          volumes:
+          - name: backup-storage
+            persistentVolumeClaim:
+              claimName: backup-pvc
+          restartPolicy: OnFailure
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: backup-pvc
+  namespace: scrummate-prod
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Gi
+  storageClassName: fast-ssd
+
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: backup-validation
+  namespace: scrummate-prod
+spec:
+  schedule: "0 4 * * *"  # Daily at 4 AM (after backup)
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: backup-validator
+            image: postgres:15
+            command:
+            - /bin/bash
+            - -c
+            - |
+              # Find latest backup
+              LATEST_BACKUP=$(ls -t /backup/*.gz | head -1)
+              
+              if [ -z "$LATEST_BACKUP" ]; then
+                echo "No backup found for validation"
+                exit 1
+              fi
+              
+              echo "Validating backup: $LATEST_BACKUP"
+              
+              # Create test database
+              createdb -h scrummate-db -U postgres scrummate_test
+              
+              # Restore backup to test database
+              gunzip -c $LATEST_BACKUP | psql -h scrummate-db -U postgres -d scrummate_test
+              
+              # Validate data integrity
+              RECORD_COUNT=$(psql -h scrummate-db -U postgres -d scrummate_test -t -c "SELECT COUNT(*) FROM users;")
+              
+              if [ "$RECORD_COUNT" -gt 0 ]; then
+                echo "Backup validation successful. Records found: $RECORD_COUNT"
+              else
+                echo "Backup validation failed. No records found."
+                exit 1
+              fi
+              
+              # Cleanup test database
+              dropdb -h scrummate-db -U postgres scrummate_test
+            env:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: password
+            volumeMounts:
+            - name: backup-storage
+              mountPath: /backup
+          volumes:
+          - name: backup-storage
+            persistentVolumeClaim:
+              claimName: backup-pvc
+          restartPolicy: OnFailure
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: disaster-recovery-scripts
+  namespace: scrummate-prod
+data:
+  point-in-time-recovery.sh: |
+    #!/bin/bash
+    # Point-in-time recovery script
+    
+    RECOVERY_TIME=${1:-$(date -d "1 hour ago" '+%Y-%m-%d %H:%M:%S')}
+    BACKUP_DATE=${2:-$(date '+%Y%m%d')}
+    
+    echo "Starting point-in-time recovery to: $RECOVERY_TIME"
+    
+    # Stop application services
+    kubectl scale deployment scrummate-backend --replicas=0 -n scrummate-prod
+    kubectl scale deployment scrummate-frontend --replicas=0 -n scrummate-prod
+    
+    # Find appropriate backup
+    BACKUP_FILE="scrummate_backup_${BACKUP_DATE}*.sql.gz"
+    
+    # Restore from backup
+    kubectl exec -it scrummate-db-0 -- bash -c "
+      gunzip -c /backup/$BACKUP_FILE | psql -U postgres -d scrummate
+    "
+    
+    # Apply WAL files up to recovery point
+    kubectl exec -it scrummate-db-0 -- bash -c "
+      pg_ctl stop -D /var/lib/postgresql/data
+      echo \"recovery_target_time = '$RECOVERY_TIME'\" >> /var/lib/postgresql/data/recovery.conf
+      pg_ctl start -D /var/lib/postgresql/data
+    "
+    
+    # Restart application services
+    kubectl scale deployment scrummate-backend --replicas=2 -n scrummate-prod
+    kubectl scale deployment scrummate-frontend --replicas=3 -n scrummate-prod
+    
+    echo "Point-in-time recovery completed"
+  
+  disaster-recovery-test.sh: |
+    #!/bin/bash
+    # Disaster recovery testing script
+    
+    echo "Starting disaster recovery test..."
+    
+    # Create test namespace
+    kubectl create namespace scrummate-dr-test
+    
+    # Deploy application in DR namespace
+    helm install scrummate-dr ./helm/scrummate \
+      --namespace scrummate-dr-test \
+      --set image.tag=latest \
+      --set database.restore=true
+    
+    # Wait for deployment
+    kubectl wait --for=condition=available --timeout=300s deployment/scrummate-backend -n scrummate-dr-test
+    
+    # Run smoke tests
+    kubectl run smoke-test --image=curlimages/curl --rm -it --restart=Never -n scrummate-dr-test -- \
+      curl -f http://scrummate-backend:8080/actuator/health
+    
+    # Cleanup
+    helm uninstall scrummate-dr -n scrummate-dr-test
+    kubectl delete namespace scrummate-dr-test
+    
+    echo "Disaster recovery test completed"
+
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: disaster-recovery-test
+  namespace: scrummate-prod
+spec:
+  schedule: "0 6 * * 0"  # Weekly on Sunday at 6 AM
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: dr-test
+            image: bitnami/kubectl:latest
+            command:
+            - /bin/bash
+            - -c
+            - |
+              # Source the DR test script
+              source /scripts/disaster-recovery-test.sh
+            volumeMounts:
+            - name: dr-scripts
+              mountPath: /scripts
+          volumes:
+          - name: dr-scripts
+            configMap:
+              name: disaster-recovery-scripts
+              defaultMode: 0755
+          restartPolicy: OnFailure
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backup-monitoring
+  namespace: monitoring
+data:
+  backup-alerts.yml: |
+    groups:
+    - name: backup.rules
+      rules:
+      - alert: BackupFailed
+        expr: kube_job_status_failed{job_name=~"database-backup.*"} > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          description: "Database backup job failed"
+          runbook_url: "https://wiki.ericsson.com/scrummate/runbooks/backup-failure"
+      
+      - alert: BackupValidationFailed
+        expr: kube_job_status_failed{job_name=~"backup-validation.*"} > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          description: "Backup validation failed"
+          runbook_url: "https://wiki.ericsson.com/scrummate/runbooks/backup-validation-failure"
+      
+      - alert: BackupOld
+        expr: time() - kube_job_status_completion_time{job_name=~"database-backup.*"} > 86400 * 2
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          description: "No successful backup in the last 2 days"
+          runbook_url: "https://wiki.ericsson.com/scrummate/runbooks/backup-old"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backup-monitor
+  namespace: scrummate-prod
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backup-monitor
+  template:
+    metadata:
+      labels:
+        app: backup-monitor
+    spec:
+      containers:
+      - name: monitor
+        image: prom/prometheus:latest
+        command:
+        - /bin/sh
+        - -c
+        - |
+          while true; do
+            # Check backup age
+            LAST_BACKUP=$(ls -t /backup/*.gz 2>/dev/null | head -1)
+            if [ -n "$LAST_BACKUP" ]; then
+              BACKUP_AGE=$(( $(date +%s) - $(stat -c %Y "$LAST_BACKUP") ))
+              echo "backup_age_seconds $BACKUP_AGE" > /tmp/backup_metrics.prom
+            fi
+            
+            # Check backup size
+            if [ -n "$LAST_BACKUP" ]; then
+              BACKUP_SIZE=$(stat -c %s "$LAST_BACKUP")
+              echo "backup_size_bytes $BACKUP_SIZE" >> /tmp/backup_metrics.prom
+            fi
+            
+            sleep 300  # Check every 5 minutes
+          done
+        volumeMounts:
+        - name: backup-storage
+          mountPath: /backup
+        ports:
+        - containerPort: 9090
+      volumes:
+      - name: backup-storage
+        persistentVolumeClaim:
+          claimName: backup-pvc

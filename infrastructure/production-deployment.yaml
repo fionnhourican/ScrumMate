@@ -1,0 +1,545 @@
+# Copyright (c) 2025 Telefonaktiebolaget LM Ericsson
+# ScrumMate - Production Deployment Configuration
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: scrummate-prod
+  labels:
+    environment: production
+    app: scrummate
+    security-policy: strict
+  annotations:
+    ericsson.com/owner: "scrummate-team@ericsson.com"
+    ericsson.com/cost-center: "12345"
+
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: scrummate-prod-quota
+  namespace: scrummate-prod
+spec:
+  hard:
+    requests.cpu: "4"
+    requests.memory: 8Gi
+    limits.cpu: "8"
+    limits.memory: 16Gi
+    persistentvolumeclaims: "10"
+    services: "10"
+    secrets: "20"
+    configmaps: "20"
+
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: scrummate-prod-limits
+  namespace: scrummate-prod
+spec:
+  limits:
+  - default:
+      cpu: 500m
+      memory: 1Gi
+    defaultRequest:
+      cpu: 100m
+      memory: 256Mi
+    type: Container
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: scrummate-backend-sa
+  namespace: scrummate-prod
+  annotations:
+    ericsson.com/service: "scrummate-backend"
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: scrummate-frontend-sa
+  namespace: scrummate-prod
+  annotations:
+    ericsson.com/service: "scrummate-frontend"
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: scrummate-app-role
+  namespace: scrummate-prod
+rules:
+- apiGroups: [""]
+  resources: ["configmaps", "secrets"]
+  verbs: ["get", "list"]
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list"]
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["get", "list"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: scrummate-backend-binding
+  namespace: scrummate-prod
+subjects:
+- kind: ServiceAccount
+  name: scrummate-backend-sa
+  namespace: scrummate-prod
+roleRef:
+  kind: Role
+  name: scrummate-app-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: scrummate-frontend-binding
+  namespace: scrummate-prod
+subjects:
+- kind: ServiceAccount
+  name: scrummate-frontend-sa
+  namespace: scrummate-prod
+roleRef:
+  kind: Role
+  name: scrummate-app-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: scrummate-prod-network-policy
+  namespace: scrummate-prod
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: ingress-nginx
+    - podSelector:
+        matchLabels:
+          app: scrummate-frontend
+    - podSelector:
+        matchLabels:
+          app: scrummate-backend
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: scrummate-db
+    ports:
+    - protocol: TCP
+      port: 5432
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 53
+    - protocol: UDP
+      port: 53
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: scrummate-prod-secrets
+  namespace: scrummate-prod
+type: Opaque
+data:
+  # Base64 encoded values - replace with actual production secrets
+  database-password: <base64-encoded-password>
+  jwt-secret: <base64-encoded-jwt-secret>
+  redis-password: <base64-encoded-redis-password>
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: scrummate-prod-config
+  namespace: scrummate-prod
+data:
+  application.yml: |
+    spring:
+      profiles:
+        active: prod
+      datasource:
+        url: jdbc:postgresql://scrummate-db:5432/scrummate
+        username: postgres
+        password: ${DATABASE_PASSWORD}
+        hikari:
+          maximum-pool-size: 20
+          minimum-idle: 5
+          connection-timeout: 30000
+      jpa:
+        hibernate:
+          ddl-auto: validate
+        show-sql: false
+      security:
+        jwt:
+          secret: ${JWT_SECRET}
+          expiration: 900000  # 15 minutes
+    
+    management:
+      endpoints:
+        web:
+          exposure:
+            include: health,info,metrics,prometheus
+      endpoint:
+        health:
+          show-details: always
+    
+    logging:
+      level:
+        com.ericsson.scrummate: INFO
+        org.springframework.security: WARN
+      pattern:
+        console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scrummate-backend-prod
+  namespace: scrummate-prod
+  labels:
+    app: scrummate-backend
+    environment: production
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: scrummate-backend
+  template:
+    metadata:
+      labels:
+        app: scrummate-backend
+        environment: production
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/actuator/prometheus"
+    spec:
+      serviceAccountName: scrummate-backend-sa
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+      - name: backend
+        image: scrummate/backend:v1.0.0
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: SPRING_PROFILES_ACTIVE
+          value: "prod"
+        - name: DATABASE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: scrummate-prod-secrets
+              key: database-password
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: scrummate-prod-secrets
+              key: jwt-secret
+        - name: JAVA_OPTS
+          value: "-Xmx1g -Xms512m -XX:+UseG1GC -XX:+HeapDumpOnOutOfMemoryError"
+        volumeMounts:
+        - name: config
+          mountPath: /app/config
+          readOnly: true
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        startupProbe:
+          httpGet:
+            path: /actuator/health/readiness
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 30
+        livenessProbe:
+          httpGet:
+            path: /actuator/health/liveness
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /actuator/health/readiness
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          failureThreshold: 3
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+      volumes:
+      - name: config
+        configMap:
+          name: scrummate-prod-config
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - scrummate-backend
+              topologyKey: kubernetes.io/hostname
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scrummate-frontend-prod
+  namespace: scrummate-prod
+  labels:
+    app: scrummate-frontend
+    environment: production
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: scrummate-frontend
+  template:
+    metadata:
+      labels:
+        app: scrummate-frontend
+        environment: production
+    spec:
+      serviceAccountName: scrummate-frontend-sa
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        fsGroup: 101
+      containers:
+      - name: frontend
+        image: scrummate/frontend:v1.0.0
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 80
+          name: http
+        env:
+        - name: REACT_APP_API_URL
+          value: "https://api.scrummate.ericsson.com"
+        - name: REACT_APP_ENVIRONMENT
+          value: "production"
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          failureThreshold: 10
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 80
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 80
+          initialDelaySeconds: 2
+          periodSeconds: 5
+          failureThreshold: 3
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: scrummate-backend
+  namespace: scrummate-prod
+  labels:
+    app: scrummate-backend
+spec:
+  selector:
+    app: scrummate-backend
+  ports:
+  - port: 8080
+    targetPort: 8080
+    name: http
+  type: ClusterIP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: scrummate-frontend
+  namespace: scrummate-prod
+  labels:
+    app: scrummate-frontend
+spec:
+  selector:
+    app: scrummate-frontend
+  ports:
+  - port: 80
+    targetPort: 80
+    name: http
+  type: ClusterIP
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: scrummate-prod-ingress
+  namespace: scrummate-prod
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+spec:
+  tls:
+  - hosts:
+    - scrummate.ericsson.com
+    - api.scrummate.ericsson.com
+    secretName: scrummate-tls
+  rules:
+  - host: scrummate.ericsson.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: scrummate-frontend
+            port:
+              number: 80
+  - host: api.scrummate.ericsson.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: scrummate-backend
+            port:
+              number: 8080
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: scrummate-backend-hpa
+  namespace: scrummate-prod
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: scrummate-backend-prod
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: scrummate-frontend-hpa
+  namespace: scrummate-prod
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: scrummate-frontend-prod
+  minReplicas: 3
+  maxReplicas: 15
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: scrummate-backend-pdb
+  namespace: scrummate-prod
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: scrummate-backend
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: scrummate-frontend-pdb
+  namespace: scrummate-prod
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: scrummate-frontend
