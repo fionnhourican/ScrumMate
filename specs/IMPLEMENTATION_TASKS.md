@@ -28,38 +28,38 @@
   - [x] Add JWT signing keys
 
 ### 1.2 Backend Service Implementation
-- [ ] Create Spring Boot project foundation
-  - [ ] Generate Spring Boot project using Spring Initializr
-  - [ ] Configure Maven pom.xml with required dependencies
-  - [ ] Set up application.yml configuration files
-  - [ ] Create package structure (controller, service, repository, entity, dto)
+- [x] Create Spring Boot project foundation
+  - [x] Generate Spring Boot project using Spring Initializr
+  - [x] Configure Maven pom.xml with required dependencies
+  - [x] Set up application.yml configuration files
+  - [x] Create package structure (controller, service, repository, entity, dto)
   - [ ] Configure logging with Logback
-- [ ] Implement data layer
-  - [ ] Create User entity with JPA annotations
-  - [ ] Create DailyEntry entity with relationships
-  - [ ] Create WeeklySummary entity with JSON fields
-  - [ ] Create MonthlyReport entity with JSONB support
-  - [ ] Add audit fields (createdAt, updatedAt) to all entities
-- [ ] Set up repository layer
-  - [ ] Create UserRepository with custom queries
-  - [ ] Create DailyEntryRepository with date-based queries
-  - [ ] Create WeeklySummaryRepository with aggregation queries
-  - [ ] Create MonthlyReportRepository with complex joins
-  - [ ] Add pagination and sorting support
+- [x] Implement data layer
+  - [x] Create User entity with JPA annotations
+  - [x] Create DailyEntry entity with relationships
+  - [x] Create WeeklySummary entity with JSON fields
+  - [x] Create MonthlyReport entity with JSONB support
+  - [x] Add audit fields (createdAt, updatedAt) to all entities
+- [x] Set up repository layer
+  - [x] Create UserRepository with custom queries
+  - [x] Create DailyEntryRepository with date-based queries
+  - [x] Create WeeklySummaryRepository with aggregation queries
+  - [x] Create MonthlyReportRepository with complex joins
+  - [x] Add pagination and sorting support
 - [ ] Implement REST controllers
   - [ ] Create AuthController for login/register/refresh
-  - [ ] Create DailyEntryController with CRUD operations
+  - [x] Create DailyEntryController with CRUD operations
   - [ ] Create WeeklySummaryController with generation logic
   - [ ] Create MonthlyReportController with export functionality
-  - [ ] Add proper HTTP status codes and error handling
+  - [x] Add proper HTTP status codes and error handling
 - [ ] Configure security layer
-  - [ ] Set up Spring Security configuration
+  - [x] Set up Spring Security configuration
   - [ ] Implement JWT token generation and validation
   - [ ] Create custom UserDetailsService
-  - [ ] Add password encoding with BCrypt
+  - [x] Add password encoding with BCrypt
   - [ ] Configure CORS for frontend integration
 - [ ] Add monitoring capabilities
-  - [ ] Configure Spring Actuator endpoints
+  - [x] Configure Spring Actuator endpoints
   - [ ] Add custom health indicators
   - [ ] Set up metrics collection
   - [ ] Configure application info endpoint
