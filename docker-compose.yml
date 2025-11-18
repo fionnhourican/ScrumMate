@@ -6,9 +6,9 @@ services:
     image: postgres:15-alpine
     container_name: scrummate-db
     environment:
-      POSTGRES_DB: scrummate
-      POSTGRES_USER: scrummate
-      POSTGRES_PASSWORD: password
+      POSTGRES_DB: ${POSTGRES_DB:-scrummate}
+      POSTGRES_USER: ${POSTGRES_USER:-scrummate}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
       PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -19,12 +19,26 @@ services:
       - "5432:5432"
     networks:
       - scrummate-network
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U scrummate -d scrummate"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-scrummate} -d ${POSTGRES_DB:-scrummate}"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 60s
+    security_opt:
+      - no-new-privileges:true
+    read_only: false
+    tmpfs:
+      - /tmp
+      - /var/run/postgresql
 
   # Spring Boot Backend
   backend:
@@ -33,11 +47,12 @@ services:
       dockerfile: Dockerfile
     container_name: scrummate-backend
     environment:
-      SPRING_PROFILES_ACTIVE: docker
-      DB_USERNAME: scrummate
-      DB_PASSWORD: password
-      SPRING_DATASOURCE_URL: jdbc:postgresql://database:5432/scrummate
-      JWT_SECRET: myVerySecretJWTKey123456789
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-docker}
+      DB_USERNAME: ${DB_USERNAME:-scrummate}
+      DB_PASSWORD: ${DB_PASSWORD:-password}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://database:5432/${POSTGRES_DB:-scrummate}
+      JWT_SECRET: ${JWT_SECRET:-myVerySecretJWTKey123456789}
+      JWT_EXPIRATION: ${JWT_EXPIRATION:-86400000}
     ports:
       - "8080:8080"
     depends_on:
@@ -45,14 +60,26 @@ services:
         condition: service_healthy
     networks:
       - scrummate-network
-    volumes:
-      - ./backend/src:/app/src:ro
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 768M
+        reservations:
+          cpus: '0.5'
+          memory: 384M
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 90s
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /app/logs
 
   # React Frontend
   frontend:
@@ -67,14 +94,27 @@ services:
         condition: service_healthy
     networks:
       - scrummate-network
-    volumes:
-      - ./frontend/src:/app/src:ro
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:80/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx
+      - /var/run
 
 volumes:
   postgres_data:

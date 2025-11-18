@@ -178,36 +178,36 @@
   - [x] Set up image retention policies
 
 ### 2.2 Container Optimization
-- [ ] Implement health checks
-  - [ ] Add /health endpoint to backend service
-  - [ ] Configure Docker health check for backend
-  - [ ] Set up nginx health check for frontend
-  - [ ] Configure PostgreSQL health monitoring
-  - [ ] Add startup and liveness probes
-- [ ] Configure application logging
-  - [ ] Set up structured JSON logging
-  - [ ] Configure log levels per environment
-  - [ ] Add correlation IDs for request tracing
-  - [ ] Set up log rotation policies
-  - [ ] Configure centralized logging output
-- [ ] Environment variable management
-  - [ ] Create .env templates for each service
-  - [ ] Set up environment-specific configurations
-  - [ ] Configure secrets management
-  - [ ] Add configuration validation
-  - [ ] Set up default values and fallbacks
-- [ ] Image size optimization
-  - [ ] Use .dockerignore files
-  - [ ] Minimize layer count
-  - [ ] Remove unnecessary packages
-  - [ ] Use distroless images where possible
-  - [ ] Configure build-time optimizations
-- [ ] Security hardening
-  - [ ] Run containers as non-root users
-  - [ ] Remove shell access from production images
-  - [ ] Configure read-only root filesystems
-  - [ ] Set up resource limits
-  - [ ] Add security scanning to build process
+- [x] Implement health checks
+  - [x] Add /health endpoint to backend service
+  - [x] Configure Docker health check for backend
+  - [x] Set up nginx health check for frontend
+  - [x] Configure PostgreSQL health monitoring
+  - [x] Add startup and liveness probes
+- [x] Configure application logging
+  - [x] Set up structured JSON logging
+  - [x] Configure log levels per environment
+  - [x] Add correlation IDs for request tracing
+  - [x] Set up log rotation policies
+  - [x] Configure centralized logging output
+- [x] Environment variable management
+  - [x] Create .env templates for each service
+  - [x] Set up environment-specific configurations
+  - [x] Configure secrets management
+  - [x] Add configuration validation
+  - [x] Set up default values and fallbacks
+- [x] Image size optimization
+  - [x] Use .dockerignore files
+  - [x] Minimize layer count
+  - [x] Remove unnecessary packages
+  - [x] Use distroless images where possible
+  - [x] Configure build-time optimizations
+- [x] Security hardening
+  - [x] Run containers as non-root users
+  - [x] Remove shell access from production images
+  - [x] Configure read-only root filesystems
+  - [x] Set up resource limits
+  - [x] Add security scanning to build process
 
 ## Phase 3: Kubernetes Deployment (Sprint 3)
 

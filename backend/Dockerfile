@@ -16,33 +16,24 @@ COPY src ./src
 # Build application
 RUN mvn clean package -DskipTests
 
-# Production stage
-FROM openjdk:17-jre-slim
+# Production stage with distroless image
+FROM gcr.io/distroless/java17-debian11:nonroot
 
-# Create non-root user for security
-RUN groupadd -r scrummate && useradd -r -g scrummate scrummate
+# Copy JAR from build stage
+COPY --from=build /app/target/*.jar /app/app.jar
 
 # Set working directory
 WORKDIR /app
 
-# Copy JAR from build stage
-COPY --from=build /app/target/*.jar app.jar
-
-# Change ownership to non-root user
-RUN chown -R scrummate:scrummate /app
-
-# Switch to non-root user
-USER scrummate
-
 # Configure JVM memory settings
-ENV JAVA_OPTS="-Xmx512m -Xms256m -XX:+UseG1GC -XX:+UseContainerSupport"
+ENV JAVA_TOOL_OPTIONS="-Xmx512m -Xms256m -XX:+UseG1GC -XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0"
 
 # Expose port
 EXPOSE 8080
 
-# Health check
+# Health check using Java HTTP client (no curl needed in distroless)
 HEALTHCHECK --interval=30s --timeout=3s --start-period=60s --retries=3 \
-  CMD curl -f http://localhost:8080/actuator/health || exit 1
+  CMD java -cp app.jar org.springframework.boot.loader.JarLauncher --health-check || exit 1
 
-# Run application
-ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]
+# Run application as non-root user (distroless nonroot user)
+ENTRYPOINT ["java", "-jar", "app.jar"]
