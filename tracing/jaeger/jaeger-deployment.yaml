@@ -1,0 +1,96 @@
+# Copyright (c) 2025 Telefonaktiebolaget LM Ericsson
+# ScrumMate Jaeger Tracing System
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tracing
+---
+apiVersion: jaegertracing.io/v1
+kind: Jaeger
+metadata:
+  name: scrummate-jaeger
+  namespace: tracing
+spec:
+  strategy: production
+  storage:
+    type: elasticsearch
+    elasticsearch:
+      nodeCount: 3
+      storage:
+        storageClassName: fast-ssd
+        size: 100Gi
+      resources:
+        requests:
+          memory: 2Gi
+          cpu: 1000m
+        limits:
+          memory: 4Gi
+          cpu: 2000m
+  collector:
+    replicas: 2
+    resources:
+      requests:
+        memory: 512Mi
+        cpu: 250m
+      limits:
+        memory: 1Gi
+        cpu: 500m
+  query:
+    replicas: 2
+    resources:
+      requests:
+        memory: 512Mi
+        cpu: 250m
+      limits:
+        memory: 1Gi
+        cpu: 500m
+  agent:
+    strategy: DaemonSet
+    resources:
+      requests:
+        memory: 128Mi
+        cpu: 100m
+      limits:
+        memory: 256Mi
+        cpu: 200m
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jaeger-query-lb
+  namespace: tracing
+spec:
+  selector:
+    app.kubernetes.io/name: scrummate-jaeger
+    app.kubernetes.io/component: query
+  ports:
+  - port: 16686
+    targetPort: 16686
+  type: LoadBalancer
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jaeger-sampling-config
+  namespace: tracing
+data:
+  sampling.json: |
+    {
+      "service_strategies": [
+        {
+          "service": "scrummate-backend",
+          "type": "probabilistic",
+          "param": 0.1
+        },
+        {
+          "service": "scrummate-frontend",
+          "type": "probabilistic",
+          "param": 0.05
+        }
+      ],
+      "default_strategy": {
+        "type": "probabilistic",
+        "param": 0.01
+      }
+    }

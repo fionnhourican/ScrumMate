@@ -1,0 +1,145 @@
+# Copyright (c) 2025 Telefonaktiebolaget LM Ericsson
+# ScrumMate Logstash Deployment
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: logstash
+  namespace: logging
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: logstash
+  template:
+    metadata:
+      labels:
+        app: logstash
+    spec:
+      containers:
+      - name: logstash
+        image: docker.elastic.co/logstash/logstash:8.11.0
+        ports:
+        - containerPort: 5044
+        - containerPort: 9600
+        resources:
+          requests:
+            memory: 1Gi
+            cpu: 500m
+          limits:
+            memory: 2Gi
+            cpu: 1000m
+        env:
+        - name: LS_JAVA_OPTS
+          value: "-Xmx1g -Xms1g"
+        volumeMounts:
+        - name: logstash-config
+          mountPath: /usr/share/logstash/pipeline
+        - name: logstash-settings
+          mountPath: /usr/share/logstash/config/logstash.yml
+          subPath: logstash.yml
+      volumes:
+      - name: logstash-config
+        configMap:
+          name: logstash-config
+      - name: logstash-settings
+        configMap:
+          name: logstash-settings
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: logstash
+  namespace: logging
+spec:
+  selector:
+    app: logstash
+  ports:
+  - name: beats
+    port: 5044
+    targetPort: 5044
+  - name: monitoring
+    port: 9600
+    targetPort: 9600
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: logstash-config
+  namespace: logging
+data:
+  logstash.conf: |
+    input {
+      beats {
+        port => 5044
+      }
+    }
+    
+    filter {
+      if [fields][service] == "scrummate-backend" {
+        json {
+          source => "message"
+        }
+        
+        mutate {
+          add_field => { "service_type" => "backend" }
+        }
+        
+        if [level] == "ERROR" {
+          mutate {
+            add_tag => [ "error" ]
+          }
+        }
+      }
+      
+      if [fields][service] == "scrummate-frontend" {
+        json {
+          source => "message"
+        }
+        
+        mutate {
+          add_field => { "service_type" => "frontend" }
+        }
+      }
+      
+      # Add correlation ID extraction
+      if [message] =~ /correlationId/ {
+        grok {
+          match => { "message" => "correlationId=(?<correlation_id>[a-zA-Z0-9-]+)" }
+        }
+      }
+      
+      # Parse timestamp
+      date {
+        match => [ "timestamp", "ISO8601" ]
+      }
+      
+      # Add environment tag
+      mutate {
+        add_field => { "environment" => "%{[fields][environment]}" }
+      }
+    }
+    
+    output {
+      elasticsearch {
+        hosts => ["scrummate-elasticsearch-es-http:9200"]
+        index => "scrummate-logs-%{+YYYY.MM.dd}"
+        user => "elastic"
+        password => "${ELASTICSEARCH_PASSWORD}"
+        ssl => true
+        ssl_certificate_verification => false
+      }
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: logstash-settings
+  namespace: logging
+data:
+  logstash.yml: |
+    http.host: "0.0.0.0"
+    xpack.monitoring.enabled: true
+    xpack.monitoring.elasticsearch.hosts: ["scrummate-elasticsearch-es-http:9200"]
+    xpack.monitoring.elasticsearch.username: "elastic"
+    xpack.monitoring.elasticsearch.password: "${ELASTICSEARCH_PASSWORD}"

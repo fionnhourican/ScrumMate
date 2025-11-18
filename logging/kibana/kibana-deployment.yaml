@@ -1,0 +1,94 @@
+# Copyright (c) 2025 Telefonaktiebolaget LM Ericsson
+# ScrumMate Kibana Deployment
+
+apiVersion: kibana.k8s.elastic.co/v1
+kind: Kibana
+metadata:
+  name: scrummate-kibana
+  namespace: logging
+spec:
+  version: 8.11.0
+  count: 1
+  elasticsearchRef:
+    name: scrummate-elasticsearch
+  config:
+    server.publicBaseUrl: "https://kibana.scrummate.local"
+    xpack.security.enabled: true
+    xpack.encryptedSavedObjects.encryptionKey: "a7a6311933d3503b89bc2dbc36572c33a7a6311933d3503b89bc2dbc36572c33"
+  podTemplate:
+    spec:
+      containers:
+      - name: kibana
+        resources:
+          requests:
+            memory: 1Gi
+            cpu: 500m
+          limits:
+            memory: 2Gi
+            cpu: 1000m
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kibana-lb
+  namespace: logging
+spec:
+  selector:
+    kibana.k8s.elastic.co/name: scrummate-kibana
+  ports:
+  - port: 5601
+    targetPort: 5601
+  type: LoadBalancer
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kibana-dashboards
+  namespace: logging
+data:
+  error-tracking.json: |
+    {
+      "version": "8.11.0",
+      "objects": [
+        {
+          "id": "error-tracking-dashboard",
+          "type": "dashboard",
+          "attributes": {
+            "title": "ScrumMate Error Tracking",
+            "hits": 0,
+            "description": "Track and analyze application errors",
+            "panelsJSON": "[{\"version\":\"8.11.0\",\"gridData\":{\"x\":0,\"y\":0,\"w\":24,\"h\":15},\"panelIndex\":\"1\",\"embeddableConfig\":{},\"panelRefName\":\"panel_1\"}]",
+            "timeRestore": false,
+            "timeTo": "now",
+            "timeFrom": "now-24h",
+            "refreshInterval": {
+              "pause": false,
+              "value": 30000
+            }
+          }
+        }
+      ]
+    }
+  performance-analysis.json: |
+    {
+      "version": "8.11.0",
+      "objects": [
+        {
+          "id": "performance-analysis-dashboard",
+          "type": "dashboard",
+          "attributes": {
+            "title": "ScrumMate Performance Analysis",
+            "hits": 0,
+            "description": "Analyze application performance through logs",
+            "panelsJSON": "[{\"version\":\"8.11.0\",\"gridData\":{\"x\":0,\"y\":0,\"w\":24,\"h\":15},\"panelIndex\":\"1\",\"embeddableConfig\":{},\"panelRefName\":\"panel_1\"}]",
+            "timeRestore": false,
+            "timeTo": "now",
+            "timeFrom": "now-1h",
+            "refreshInterval": {
+              "pause": false,
+              "value": 10000
+            }
+          }
+        }
+      ]
+    }

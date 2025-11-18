@@ -1,0 +1,115 @@
+# Copyright (c) 2025 Telefonaktiebolaget LM Ericsson
+# ScrumMate Elasticsearch Cluster Configuration
+
+apiVersion: elasticsearch.k8s.elastic.co/v1
+kind: Elasticsearch
+metadata:
+  name: scrummate-elasticsearch
+  namespace: logging
+spec:
+  version: 8.11.0
+  nodeSets:
+  - name: master
+    count: 3
+    config:
+      node.roles: ["master"]
+      xpack.security.enabled: true
+      xpack.security.transport.ssl.enabled: true
+      xpack.security.http.ssl.enabled: true
+    podTemplate:
+      spec:
+        containers:
+        - name: elasticsearch
+          resources:
+            requests:
+              memory: 2Gi
+              cpu: 1000m
+            limits:
+              memory: 4Gi
+              cpu: 2000m
+          env:
+          - name: ES_JAVA_OPTS
+            value: "-Xms2g -Xmx2g"
+    volumeClaimTemplates:
+    - metadata:
+        name: elasticsearch-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 50Gi
+        storageClassName: fast-ssd
+  - name: data
+    count: 3
+    config:
+      node.roles: ["data", "ingest"]
+      xpack.security.enabled: true
+    podTemplate:
+      spec:
+        containers:
+        - name: elasticsearch
+          resources:
+            requests:
+              memory: 4Gi
+              cpu: 2000m
+            limits:
+              memory: 8Gi
+              cpu: 4000m
+          env:
+          - name: ES_JAVA_OPTS
+            value: "-Xms4g -Xmx4g"
+    volumeClaimTemplates:
+    - metadata:
+        name: elasticsearch-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 200Gi
+        storageClassName: fast-ssd
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: logging
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: elasticsearch-ilm-policy
+  namespace: logging
+data:
+  policy.json: |
+    {
+      "policy": {
+        "phases": {
+          "hot": {
+            "actions": {
+              "rollover": {
+                "max_size": "10GB",
+                "max_age": "7d"
+              }
+            }
+          },
+          "warm": {
+            "min_age": "7d",
+            "actions": {
+              "allocate": {
+                "number_of_replicas": 0
+              }
+            }
+          },
+          "cold": {
+            "min_age": "30d",
+            "actions": {
+              "allocate": {
+                "number_of_replicas": 0
+              }
+            }
+          },
+          "delete": {
+            "min_age": "90d"
+          }
+        }
+      }
+    }
