@@ -1,0 +1,56 @@
+# Copyright (c) 2025 Telefonaktiebolaget LM Ericsson
+# ScrumMate GitOps Notification System
+
+apiVersion: notification.toolkit.fluxcd.io/v1beta1
+kind: Provider
+metadata:
+  name: slack
+  namespace: flux-system
+spec:
+  type: slack
+  channel: scrummate-deployments
+  secretRef:
+    name: slack-webhook
+---
+apiVersion: notification.toolkit.fluxcd.io/v1beta1
+kind: Provider
+metadata:
+  name: webhook
+  namespace: flux-system
+spec:
+  type: generic
+  address: https://api.company.com/webhooks/flux
+  secretRef:
+    name: webhook-secret
+---
+apiVersion: notification.toolkit.fluxcd.io/v1beta1
+kind: Alert
+metadata:
+  name: deployment-alerts
+  namespace: flux-system
+spec:
+  providerRef:
+    name: slack
+  eventSeverity: info
+  eventSources:
+    - kind: Kustomization
+      name: '*'
+    - kind: HelmRelease
+      name: '*'
+  summary: "Deployment {{ .InvolvedObject.name }} in {{ .InvolvedObject.namespace }}"
+---
+apiVersion: notification.toolkit.fluxcd.io/v1beta1
+kind: Alert
+metadata:
+  name: failure-alerts
+  namespace: flux-system
+spec:
+  providerRef:
+    name: slack
+  eventSeverity: error
+  eventSources:
+    - kind: Kustomization
+      name: '*'
+    - kind: HelmRelease
+      name: '*'
+  summary: "🚨 FAILURE: {{ .InvolvedObject.name }} in {{ .InvolvedObject.namespace }}"

@@ -1,0 +1,77 @@
+# Copyright (c) 2025 Telefonaktiebolaget LM Ericsson
+# ScrumMate Flagger Canary Configuration
+
+apiVersion: flagger.app/v1beta1
+kind: Canary
+metadata:
+  name: scrummate-frontend
+  namespace: scrummate-prod
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: scrummate-frontend
+  progressDeadlineSeconds: 60
+  service:
+    port: 80
+    targetPort: 3000
+    gateways:
+    - scrummate-gateway
+    hosts:
+    - scrummate.company.com
+  analysis:
+    interval: 1m
+    threshold: 5
+    maxWeight: 50
+    stepWeight: 10
+    metrics:
+    - name: request-success-rate
+      thresholdRange:
+        min: 99
+      interval: 1m
+    - name: request-duration
+      thresholdRange:
+        max: 500
+      interval: 30s
+    webhooks:
+    - name: acceptance-test
+      type: pre-rollout
+      url: http://flagger-loadtester.test/
+      timeout: 30s
+      metadata:
+        type: bash
+        cmd: "curl -sd 'test' http://scrummate-frontend-canary/api/health | grep OK"
+    - name: load-test
+      url: http://flagger-loadtester.test/
+      timeout: 5s
+      metadata:
+        cmd: "hey -z 1m -q 10 -c 2 http://scrummate-frontend-canary/"
+---
+apiVersion: flagger.app/v1beta1
+kind: Canary
+metadata:
+  name: scrummate-backend
+  namespace: scrummate-prod
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: scrummate-backend
+  progressDeadlineSeconds: 60
+  service:
+    port: 8080
+    targetPort: 8080
+  analysis:
+    interval: 1m
+    threshold: 5
+    maxWeight: 30
+    stepWeight: 5
+    metrics:
+    - name: request-success-rate
+      thresholdRange:
+        min: 99
+      interval: 1m
+    - name: request-duration
+      thresholdRange:
+        max: 1000
+      interval: 30s

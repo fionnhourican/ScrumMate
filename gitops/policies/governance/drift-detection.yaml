@@ -1,0 +1,50 @@
+# Copyright (c) 2025 Telefonaktiebolaget LM Ericsson
+# ScrumMate Drift Detection Configuration
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: drift-detection-config
+  namespace: flux-system
+data:
+  drift-detection.yaml: |
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: drift-monitor
+      namespace: flux-system
+    data:
+      monitor.sh: |
+        #!/bin/bash
+        # Monitor for configuration drift
+        kubectl get kustomizations -n flux-system -o json | \
+        jq -r '.items[] | select(.status.conditions[]?.type == "Ready" and .status.conditions[]?.status == "False") | .metadata.name'
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: drift-detector
+  namespace: flux-system
+spec:
+  schedule: "*/5 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: drift-detector
+            image: bitnami/kubectl:latest
+            command:
+            - /bin/bash
+            - -c
+            - |
+              # Check for drift in Kustomizations
+              DRIFTED=$(kubectl get kustomizations -n flux-system -o json | \
+                jq -r '.items[] | select(.status.conditions[]?.type == "Ready" and .status.conditions[]?.status == "False") | .metadata.name')
+              
+              if [ -n "$DRIFTED" ]; then
+                echo "Drift detected in: $DRIFTED"
+                # Send alert
+                kubectl create event drift-detected --namespace=flux-system --reason=DriftDetected --message="Configuration drift detected in: $DRIFTED" || true
+              fi
+          restartPolicy: OnFailure

@@ -1,0 +1,58 @@
+# Copyright (c) 2025 Telefonaktiebolaget LM Ericsson
+# ScrumMate Automated Sync Policies
+
+apiVersion: kustomize.toolkit.fluxcd.io/v1beta2
+kind: Kustomization
+metadata:
+  name: sync-policy-dev
+  namespace: flux-system
+spec:
+  interval: 2m
+  retryInterval: 1m
+  timeout: 5m
+  sourceRef:
+    kind: GitRepository
+    name: scrummate-repo
+  path: "./gitops/environments/dev"
+  prune: true
+  wait: true
+  force: false
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1beta2
+kind: Kustomization
+metadata:
+  name: sync-policy-staging
+  namespace: flux-system
+spec:
+  interval: 5m
+  retryInterval: 2m
+  timeout: 10m
+  sourceRef:
+    kind: GitRepository
+    name: scrummate-repo
+  path: "./gitops/environments/staging"
+  prune: true
+  wait: true
+  force: false
+  dependsOn:
+    - name: sync-policy-dev
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1beta2
+kind: Kustomization
+metadata:
+  name: sync-policy-prod
+  namespace: flux-system
+spec:
+  interval: 10m
+  retryInterval: 5m
+  timeout: 15m
+  sourceRef:
+    kind: GitRepository
+    name: scrummate-repo
+  path: "./gitops/environments/prod"
+  prune: false
+  wait: true
+  force: false
+  suspend: true
+  dependsOn:
+    - name: sync-policy-staging
