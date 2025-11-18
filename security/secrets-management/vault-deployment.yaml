@@ -1,0 +1,219 @@
+# Copyright (c) 2025 Telefonaktiebolaget LM Ericsson
+# ScrumMate HashiCorp Vault Deployment
+
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: vault
+  namespace: security
+spec:
+  serviceName: vault
+  replicas: 3
+  selector:
+    matchLabels:
+      app: vault
+  template:
+    metadata:
+      labels:
+        app: vault
+    spec:
+      serviceAccountName: vault
+      containers:
+      - name: vault
+        image: hashicorp/vault:1.15.2
+        ports:
+        - containerPort: 8200
+        - containerPort: 8201
+        env:
+        - name: VAULT_ADDR
+          value: "https://127.0.0.1:8200"
+        - name: VAULT_API_ADDR
+          value: "https://vault.security.svc.cluster.local:8200"
+        - name: VAULT_CLUSTER_ADDR
+          value: "https://vault.security.svc.cluster.local:8201"
+        - name: VAULT_RAFT_NODE_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        resources:
+          requests:
+            memory: 256Mi
+            cpu: 250m
+          limits:
+            memory: 512Mi
+            cpu: 500m
+        volumeMounts:
+        - name: vault-config
+          mountPath: /vault/config
+        - name: vault-data
+          mountPath: /vault/data
+        - name: vault-tls
+          mountPath: /vault/tls
+        securityContext:
+          capabilities:
+            add: ["IPC_LOCK"]
+        readinessProbe:
+          httpGet:
+            path: /v1/sys/health?standbyok=true
+            port: 8200
+            scheme: HTTPS
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /v1/sys/health?standbyok=true
+            port: 8200
+            scheme: HTTPS
+          initialDelaySeconds: 60
+          periodSeconds: 10
+      volumes:
+      - name: vault-config
+        configMap:
+          name: vault-config
+      - name: vault-tls
+        secret:
+          secretName: vault-tls
+  volumeClaimTemplates:
+  - metadata:
+      name: vault-data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 10Gi
+      storageClassName: fast-ssd
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vault
+  namespace: security
+spec:
+  selector:
+    app: vault
+  ports:
+  - name: vault-port
+    port: 8200
+    targetPort: 8200
+  - name: vault-cluster-port
+    port: 8201
+    targetPort: 8201
+  clusterIP: None
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vault-active
+  namespace: security
+spec:
+  selector:
+    app: vault
+    vault-active: "true"
+  ports:
+  - name: vault-port
+    port: 8200
+    targetPort: 8200
+  type: LoadBalancer
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vault
+  namespace: security
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vault-config
+  namespace: security
+data:
+  vault.hcl: |
+    ui = true
+    
+    listener "tcp" {
+      address = "[::]:8200"
+      cluster_address = "[::]:8201"
+      tls_cert_file = "/vault/tls/tls.crt"
+      tls_key_file = "/vault/tls/tls.key"
+    }
+    
+    storage "raft" {
+      path = "/vault/data"
+      node_id = "VAULT_RAFT_NODE_ID"
+      
+      retry_join {
+        leader_api_addr = "https://vault-0.vault.security.svc.cluster.local:8200"
+      }
+      retry_join {
+        leader_api_addr = "https://vault-1.vault.security.svc.cluster.local:8200"
+      }
+      retry_join {
+        leader_api_addr = "https://vault-2.vault.security.svc.cluster.local:8200"
+      }
+    }
+    
+    api_addr = "https://vault.security.svc.cluster.local:8200"
+    cluster_addr = "https://vault.security.svc.cluster.local:8201"
+    
+    log_level = "INFO"
+    log_format = "json"
+    
+    seal "transit" {
+      address = "https://vault.security.svc.cluster.local:8200"
+      disable_renewal = "false"
+      key_name = "autounseal"
+      mount_path = "transit/"
+    }
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: vault-init
+  namespace: security
+spec:
+  template:
+    spec:
+      serviceAccountName: vault
+      containers:
+      - name: vault-init
+        image: hashicorp/vault:1.15.2
+        command:
+        - /bin/sh
+        - -c
+        - |
+          # Wait for Vault to be ready
+          until vault status; do
+            echo "Waiting for Vault..."
+            sleep 5
+          done
+          
+          # Initialize Vault
+          vault operator init -key-shares=5 -key-threshold=3 -format=json > /tmp/vault-keys.json
+          
+          # Store keys in Kubernetes secret
+          kubectl create secret generic vault-keys --from-file=/tmp/vault-keys.json -n security
+          
+          # Enable KV secrets engine
+          vault secrets enable -path=scrummate kv-v2
+          
+          # Enable database secrets engine
+          vault secrets enable database
+          
+          # Configure database connection
+          vault write database/config/postgresql \
+            plugin_name=postgresql-database-plugin \
+            connection_url="postgresql://{{username}}:{{password}}@postgresql.scrummate-prod:5432/scrummate?sslmode=disable" \
+            allowed_roles="scrummate-role"
+          
+          # Create database role
+          vault write database/roles/scrummate-role \
+            db_name=postgresql \
+            creation_statements="CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}'; GRANT SELECT ON ALL TABLES IN SCHEMA public TO \"{{name}}\";" \
+            default_ttl="1h" \
+            max_ttl="24h"
+        env:
+        - name: VAULT_ADDR
+          value: "https://vault.security.svc.cluster.local:8200"
+        - name: VAULT_SKIP_VERIFY
+          value: "true"
+      restartPolicy: OnFailure

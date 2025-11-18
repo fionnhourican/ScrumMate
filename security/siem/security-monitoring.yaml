@@ -1,0 +1,210 @@
+# Copyright (c) 2025 Telefonaktiebolaget LM Ericsson
+# ScrumMate Security Monitoring and SIEM
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: security-monitor
+  namespace: security
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: security-monitor
+  template:
+    metadata:
+      labels:
+        app: security-monitor
+    spec:
+      containers:
+      - name: security-monitor
+        image: elastic/watcher:8.11.0
+        ports:
+        - containerPort: 9200
+        env:
+        - name: ELASTICSEARCH_HOSTS
+          value: "https://scrummate-elasticsearch-es-http.logging:9200"
+        - name: ELASTICSEARCH_USERNAME
+          value: "elastic"
+        - name: ELASTICSEARCH_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: elasticsearch-credentials
+              key: password
+        resources:
+          requests:
+            memory: 1Gi
+            cpu: 500m
+          limits:
+            memory: 2Gi
+            cpu: 1000m
+        volumeMounts:
+        - name: security-rules
+          mountPath: /usr/share/watcher/config
+      volumes:
+      - name: security-rules
+        configMap:
+          name: security-rules
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: security-rules
+  namespace: security
+data:
+  security-rules.json: |
+    {
+      "trigger": {
+        "schedule": {
+          "interval": "1m"
+        }
+      },
+      "input": {
+        "search": {
+          "request": {
+            "search_type": "query_then_fetch",
+            "indices": ["scrummate-logs-*"],
+            "body": {
+              "query": {
+                "bool": {
+                  "must": [
+                    {
+                      "range": {
+                        "@timestamp": {
+                          "gte": "now-5m"
+                        }
+                      }
+                    },
+                    {
+                      "terms": {
+                        "level": ["ERROR", "WARN"]
+                      }
+                    },
+                    {
+                      "bool": {
+                        "should": [
+                          {
+                            "match": {
+                              "message": "authentication failed"
+                            }
+                          },
+                          {
+                            "match": {
+                              "message": "unauthorized access"
+                            }
+                          },
+                          {
+                            "match": {
+                              "message": "suspicious activity"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "condition": {
+        "compare": {
+          "ctx.payload.hits.total": {
+            "gt": 5
+          }
+        }
+      },
+      "actions": {
+        "send_email": {
+          "email": {
+            "to": ["security@company.com"],
+            "subject": "Security Alert: Suspicious Activity Detected",
+            "body": "Multiple security events detected in the last 5 minutes. Please investigate immediately."
+          }
+        },
+        "webhook": {
+          "webhook": {
+            "scheme": "https",
+            "host": "security-webhook.company.com",
+            "port": 443,
+            "method": "post",
+            "path": "/alerts",
+            "params": {},
+            "headers": {
+              "Content-Type": "application/json"
+            },
+            "body": "{{#toJson}}ctx.payload{{/toJson}}"
+          }
+        }
+      }
+    }
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: security-report
+  namespace: security
+spec:
+  schedule: "0 6 * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: security-report
+            image: curlimages/curl:latest
+            command:
+            - /bin/sh
+            - -c
+            - |
+              # Generate daily security report
+              curl -X POST "https://scrummate-elasticsearch-es-http.logging:9200/_sql" \
+                -H "Content-Type: application/json" \
+                -u "elastic:${ELASTICSEARCH_PASSWORD}" \
+                -d '{
+                  "query": "SELECT level, COUNT(*) as count FROM \"scrummate-logs-*\" WHERE @timestamp >= NOW() - INTERVAL 1 DAY GROUP BY level"
+                }' > /tmp/security-report.json
+              
+              # Send report via webhook
+              curl -X POST "${SECURITY_WEBHOOK_URL}" \
+                -H "Content-Type: application/json" \
+                -d @/tmp/security-report.json
+            env:
+            - name: ELASTICSEARCH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: elasticsearch-credentials
+                  key: password
+            - name: SECURITY_WEBHOOK_URL
+              value: "https://security-reports.company.com/daily"
+          restartPolicy: OnFailure
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: security-monitor
+  namespace: security
+spec:
+  selector:
+    app: security-monitor
+  ports:
+  - port: 9200
+    targetPort: 9200
+  type: ClusterIP
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: security-monitor
+  namespace: security
+  labels:
+    app: scrummate
+spec:
+  selector:
+    matchLabels:
+      app: security-monitor
+  endpoints:
+  - port: http
+    path: /metrics
+    interval: 30s
