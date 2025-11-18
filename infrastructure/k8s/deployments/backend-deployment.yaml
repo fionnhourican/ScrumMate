@@ -21,6 +21,7 @@ spec:
         app: scrummate-backend
         component: backend
     spec:
+      serviceAccountName: scrummate-backend-sa
       affinity:
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
@@ -36,6 +37,7 @@ spec:
       containers:
       - name: backend
         image: scrummate/scrummate-backend:latest
+        imagePullPolicy: Always
         ports:
         - containerPort: 8080
           name: http
@@ -87,6 +89,9 @@ spec:
           runAsUser: 65534
           readOnlyRootFilesystem: true
           allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
         volumeMounts:
         - name: tmp
           mountPath: /tmp
@@ -97,6 +102,8 @@ spec:
         emptyDir: {}
       - name: logs
         emptyDir: {}
+      imagePullSecrets:
+      - name: scrummate-registry-secret
 ---
 apiVersion: policy/v1
 kind: PodDisruptionBudget

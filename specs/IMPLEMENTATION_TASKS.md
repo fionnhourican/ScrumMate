@@ -252,37 +252,37 @@
   - [x] Configure volume snapshots
 
 ### 3.2 Kubernetes Networking & Security
-- [ ] Configure Ingress controller
-  - [ ] Install nginx-ingress or Traefik
-  - [ ] Create Ingress resource for frontend
-  - [ ] Set up SSL/TLS termination
-  - [ ] Configure path-based routing
-  - [ ] Add rate limiting rules
-  - [ ] Set up custom error pages
-- [ ] Implement NetworkPolicies
-  - [ ] Create policy for frontend to backend communication
-  - [ ] Create policy for backend to database communication
-  - [ ] Deny all other pod-to-pod communication
-  - [ ] Allow ingress controller access
-  - [ ] Configure egress rules for external APIs
-- [ ] Set up RBAC
-  - [ ] Create ServiceAccount for each service
-  - [ ] Create Role for application permissions
-  - [ ] Create RoleBinding for service accounts
-  - [ ] Configure ClusterRole for cross-namespace access
-  - [ ] Set up least privilege access
-- [ ] Configure resource management
-  - [ ] Set CPU and memory requests for all pods
-  - [ ] Set CPU and memory limits for all pods
-  - [ ] Configure quality of service classes
-  - [ ] Set up horizontal pod autoscaling
-  - [ ] Configure vertical pod autoscaling
-- [ ] Implement security policies
-  - [ ] Create PodSecurityPolicy or Pod Security Standards
-  - [ ] Configure security contexts for all pods
-  - [ ] Set up admission controllers
-  - [ ] Configure image pull policies
-  - [ ] Add security scanning integration
+- [x] Configure Ingress controller
+  - [x] Install nginx-ingress or Traefik
+  - [x] Create Ingress resource for frontend
+  - [x] Set up SSL/TLS termination
+  - [x] Configure path-based routing
+  - [x] Add rate limiting rules
+  - [x] Set up custom error pages
+- [x] Implement NetworkPolicies
+  - [x] Create policy for frontend to backend communication
+  - [x] Create policy for backend to database communication
+  - [x] Deny all other pod-to-pod communication
+  - [x] Allow ingress controller access
+  - [x] Configure egress rules for external APIs
+- [x] Set up RBAC
+  - [x] Create ServiceAccount for each service
+  - [x] Create Role for application permissions
+  - [x] Create RoleBinding for service accounts
+  - [x] Configure ClusterRole for cross-namespace access
+  - [x] Set up least privilege access
+- [x] Configure resource management
+  - [x] Set CPU and memory requests for all pods
+  - [x] Set CPU and memory limits for all pods
+  - [x] Configure quality of service classes
+  - [x] Set up horizontal pod autoscaling
+  - [x] Configure vertical pod autoscaling
+- [x] Implement security policies
+  - [x] Create PodSecurityPolicy or Pod Security Standards
+  - [x] Configure security contexts for all pods
+  - [x] Set up admission controllers
+  - [x] Configure image pull policies
+  - [x] Add security scanning integration
 
 ## Phase 4: Helm Package Management (Sprint 4)
 

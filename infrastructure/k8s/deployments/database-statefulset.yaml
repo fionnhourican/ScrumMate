@@ -17,9 +17,11 @@ spec:
         app: scrummate-db
         component: database
     spec:
+      serviceAccountName: scrummate-db-sa
       containers:
       - name: postgres
         image: postgres:15-alpine
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 5432
           name: postgres
@@ -74,6 +76,10 @@ spec:
           runAsUser: 999
           runAsGroup: 999
           fsGroup: 999
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
         volumeMounts:
         - name: postgres-data
           mountPath: /var/lib/postgresql/data

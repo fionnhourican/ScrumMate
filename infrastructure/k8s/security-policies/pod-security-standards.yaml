@@ -1,0 +1,104 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: scrummate-dev
+  labels:
+    name: scrummate-dev
+    environment: development
+    app: scrummate
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+  annotations:
+    description: "ScrumMate development environment with restricted security"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: scrummate-staging
+  labels:
+    name: scrummate-staging
+    environment: staging
+    app: scrummate
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+  annotations:
+    description: "ScrumMate staging environment with restricted security"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: scrummate-prod
+  labels:
+    name: scrummate-prod
+    environment: production
+    app: scrummate
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+  annotations:
+    description: "ScrumMate production environment with restricted security"
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: scrummate-security-policy
+  labels:
+    app: scrummate
+spec:
+  validationFailureAction: enforce
+  background: true
+  rules:
+  - name: check-image-pull-policy
+    match:
+      any:
+      - resources:
+          kinds:
+          - Pod
+          namespaces:
+          - scrummate-dev
+          - scrummate-staging
+          - scrummate-prod
+    validate:
+      message: "Image pull policy must be Always or IfNotPresent"
+      pattern:
+        spec:
+          containers:
+          - imagePullPolicy: "Always | IfNotPresent"
+  - name: require-non-root-user
+    match:
+      any:
+      - resources:
+          kinds:
+          - Pod
+          namespaces:
+          - scrummate-dev
+          - scrummate-staging
+          - scrummate-prod
+    validate:
+      message: "Containers must run as non-root user"
+      pattern:
+        spec:
+          securityContext:
+            runAsNonRoot: true
+          containers:
+          - securityContext:
+              runAsNonRoot: true
+  - name: require-read-only-root-filesystem
+    match:
+      any:
+      - resources:
+          kinds:
+          - Pod
+          namespaces:
+          - scrummate-dev
+          - scrummate-staging
+          - scrummate-prod
+    validate:
+      message: "Containers must have read-only root filesystem"
+      pattern:
+        spec:
+          containers:
+          - securityContext:
+              readOnlyRootFilesystem: true

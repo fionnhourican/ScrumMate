@@ -21,6 +21,7 @@ spec:
         app: scrummate-frontend
         component: frontend
     spec:
+      serviceAccountName: scrummate-frontend-sa
       affinity:
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
@@ -36,6 +37,7 @@ spec:
       containers:
       - name: frontend
         image: scrummate/scrummate-frontend:latest
+        imagePullPolicy: Always
         ports:
         - containerPort: 80
           name: http
@@ -67,6 +69,9 @@ spec:
           runAsUser: 1001
           readOnlyRootFilesystem: true
           allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
         volumeMounts:
         - name: tmp
           mountPath: /tmp
@@ -81,6 +86,8 @@ spec:
         emptyDir: {}
       - name: nginx-run
         emptyDir: {}
+      imagePullSecrets:
+      - name: scrummate-registry-secret
 ---
 apiVersion: policy/v1
 kind: PodDisruptionBudget
