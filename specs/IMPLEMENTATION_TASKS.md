@@ -212,44 +212,44 @@
 ## Phase 3: Kubernetes Deployment (Sprint 3)
 
 ### 3.1 Kubernetes Manifests
-- [ ] Create namespace configuration
-  - [ ] Define scrummate-dev namespace
-  - [ ] Define scrummate-staging namespace  
-  - [ ] Define scrummate-prod namespace
-  - [ ] Add resource quotas per namespace
-  - [ ] Configure namespace labels and annotations
-- [ ] Implement deployment manifests
-  - [ ] Create backend deployment with 2 replicas
-  - [ ] Create frontend deployment with 3 replicas
-  - [ ] Create database StatefulSet with 1 replica
-  - [ ] Configure rolling update strategies
-  - [ ] Set up resource requests and limits
-  - [ ] Add pod disruption budgets
-  - [ ] Configure anti-affinity rules
-- [ ] Configure service discovery
-  - [ ] Create ClusterIP service for backend
-  - [ ] Create ClusterIP service for database
-  - [ ] Create LoadBalancer service for frontend
-  - [ ] Set up service selectors and ports
-  - [ ] Configure session affinity if needed
-- [ ] Set up configuration management
-  - [ ] Create ConfigMap for backend application.yml
-  - [ ] Create ConfigMap for frontend environment variables
-  - [ ] Create ConfigMap for nginx configuration
-  - [ ] Create ConfigMap for database initialization
-  - [ ] Add configuration validation
-- [ ] Create secrets management
-  - [ ] Create Secret for database credentials
-  - [ ] Create Secret for JWT signing keys
-  - [ ] Create Secret for Docker registry access
-  - [ ] Set up secret rotation policies
-  - [ ] Configure secret encryption at rest
-- [ ] Implement persistent storage
-  - [ ] Create PersistentVolume for database
-  - [ ] Create PersistentVolumeClaim for PostgreSQL
-  - [ ] Configure storage class for different environments
-  - [ ] Set up backup storage volumes
-  - [ ] Configure volume snapshots
+- [x] Create namespace configuration
+  - [x] Define scrummate-dev namespace
+  - [x] Define scrummate-staging namespace  
+  - [x] Define scrummate-prod namespace
+  - [x] Add resource quotas per namespace
+  - [x] Configure namespace labels and annotations
+- [x] Implement deployment manifests
+  - [x] Create backend deployment with 2 replicas
+  - [x] Create frontend deployment with 3 replicas
+  - [x] Create database StatefulSet with 1 replica
+  - [x] Configure rolling update strategies
+  - [x] Set up resource requests and limits
+  - [x] Add pod disruption budgets
+  - [x] Configure anti-affinity rules
+- [x] Configure service discovery
+  - [x] Create ClusterIP service for backend
+  - [x] Create ClusterIP service for database
+  - [x] Create LoadBalancer service for frontend
+  - [x] Set up service selectors and ports
+  - [x] Configure session affinity if needed
+- [x] Set up configuration management
+  - [x] Create ConfigMap for backend application.yml
+  - [x] Create ConfigMap for frontend environment variables
+  - [x] Create ConfigMap for nginx configuration
+  - [x] Create ConfigMap for database initialization
+  - [x] Add configuration validation
+- [x] Create secrets management
+  - [x] Create Secret for database credentials
+  - [x] Create Secret for JWT signing keys
+  - [x] Create Secret for Docker registry access
+  - [x] Set up secret rotation policies
+  - [x] Configure secret encryption at rest
+- [x] Implement persistent storage
+  - [x] Create PersistentVolume for database
+  - [x] Create PersistentVolumeClaim for PostgreSQL
+  - [x] Configure storage class for different environments
+  - [x] Set up backup storage volumes
+  - [x] Configure volume snapshots
 
 ### 3.2 Kubernetes Networking & Security
 - [ ] Configure Ingress controller
