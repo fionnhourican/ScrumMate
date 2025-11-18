@@ -1,0 +1,64 @@
+# Development environment configuration for Helmfile
+
+# Infrastructure components
+certManager:
+  enabled: false
+
+ingressNginx:
+  enabled: false
+
+monitoring:
+  enabled: false
+
+# Application-specific overrides
+scrummate:
+  global:
+    environment: dev
+  
+  backend:
+    replicaCount: 1
+    resources:
+      requests:
+        cpu: 250m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+    autoscaling:
+      enabled: false
+  
+  frontend:
+    replicaCount: 1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 128Mi
+    autoscaling:
+      enabled: false
+    service:
+      type: NodePort
+  
+  postgresql:
+    enabled: true
+    auth:
+      database: scrummate_dev
+      username: scrummate_dev
+    primary:
+      persistence:
+        size: 2Gi
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          cpu: 500m
+          memory: 256Mi
+  
+  ingress:
+    enabled: false
+  
+  networkPolicies:
+    enabled: false

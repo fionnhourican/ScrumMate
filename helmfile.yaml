@@ -1,0 +1,130 @@
+helmDefaults:
+  wait: true
+  timeout: 600
+  recreatePods: false
+  force: false
+  atomic: true
+  cleanupOnFail: true
+  historyMax: 10
+
+repositories:
+  - name: bitnami
+    url: https://charts.bitnami.com/bitnami
+  - name: prometheus-community
+    url: https://prometheus-community.github.io/helm-charts
+  - name: ingress-nginx
+    url: https://kubernetes.github.io/ingress-nginx
+  - name: jetstack
+    url: https://charts.jetstack.io
+
+environments:
+  dev:
+    values:
+      - environments/dev/values.yaml
+    secrets:
+      - environments/dev/secrets.yaml
+  staging:
+    values:
+      - environments/staging/values.yaml
+    secrets:
+      - environments/staging/secrets.yaml
+  prod:
+    values:
+      - environments/prod/values.yaml
+    secrets:
+      - environments/prod/secrets.yaml
+
+releases:
+  # Infrastructure dependencies
+  - name: cert-manager
+    namespace: cert-manager
+    chart: jetstack/cert-manager
+    version: v1.13.3
+    condition: certManager.enabled
+    wait: true
+    timeout: 300
+    values:
+      - installCRDs: true
+      - global:
+          leaderElection:
+            namespace: cert-manager
+    hooks:
+      - events: ["presync"]
+        showlogs: true
+        command: "kubectl"
+        args: ["create", "namespace", "cert-manager", "--dry-run=client", "-o", "yaml"]
+      - events: ["presync"]
+        showlogs: true
+        command: "kubectl"
+        args: ["apply", "-f", "-"]
+
+  - name: ingress-nginx
+    namespace: ingress-nginx
+    chart: ingress-nginx/ingress-nginx
+    version: 4.8.3
+    condition: ingressNginx.enabled
+    wait: true
+    timeout: 300
+    needs:
+      - cert-manager
+    values:
+      - controller:
+          service:
+            type: LoadBalancer
+          metrics:
+            enabled: true
+            serviceMonitor:
+              enabled: {{ .Values.monitoring.enabled | default false }}
+
+  # Monitoring stack
+  - name: kube-prometheus-stack
+    namespace: monitoring
+    chart: prometheus-community/kube-prometheus-stack
+    version: 55.5.0
+    condition: monitoring.enabled
+    wait: true
+    timeout: 600
+    values:
+      - grafana:
+          adminPassword: {{ .Values.monitoring.grafana.adminPassword | default "admin" }}
+          persistence:
+            enabled: true
+            size: 10Gi
+      - prometheus:
+          prometheusSpec:
+            retention: 30d
+            storageSpec:
+              volumeClaimTemplate:
+                spec:
+                  accessModes: ["ReadWriteOnce"]
+                  resources:
+                    requests:
+                      storage: 50Gi
+
+  # ScrumMate application
+  - name: scrummate
+    namespace: scrummate-{{ .Environment.Name }}
+    chart: ./helm/scrummate
+    version: 1.0.0
+    wait: true
+    timeout: 600
+    needs:
+      - ingress-nginx
+    hooks:
+      - events: ["presync"]
+        showlogs: true
+        command: "kubectl"
+        args: ["create", "namespace", "scrummate-{{ .Environment.Name }}", "--dry-run=client", "-o", "yaml"]
+      - events: ["presync"]
+        showlogs: true
+        command: "kubectl"
+        args: ["apply", "-f", "-"]
+      - events: ["postsync"]
+        showlogs: true
+        command: "./scripts/validate-deployment.sh"
+        args: ["scrummate-{{ .Environment.Name }}"]
+    values:
+      - ./helm/scrummate/values.yaml
+      - ./helm/scrummate/values-{{ .Environment.Name }}.yaml
+    secrets:
+      - ./environments/{{ .Environment.Name }}/secrets.yaml

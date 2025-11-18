@@ -1,0 +1,91 @@
+# Staging environment configuration for Helmfile
+
+# Infrastructure components
+certManager:
+  enabled: true
+
+ingressNginx:
+  enabled: true
+
+monitoring:
+  enabled: true
+  grafana:
+    adminPassword: staging-admin-password
+
+# Application-specific overrides
+scrummate:
+  global:
+    environment: staging
+  
+  backend:
+    replicaCount: 2
+    resources:
+      requests:
+        cpu: 400m
+        memory: 400Mi
+      limits:
+        cpu: 800m
+        memory: 800Mi
+    autoscaling:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 6
+  
+  frontend:
+    replicaCount: 2
+    resources:
+      requests:
+        cpu: 80m
+        memory: 100Mi
+      limits:
+        cpu: 400m
+        memory: 200Mi
+    autoscaling:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 8
+  
+  postgresql:
+    enabled: true
+    auth:
+      database: scrummate_staging
+      username: scrummate_staging
+    primary:
+      persistence:
+        size: 5Gi
+        storageClass: fast-ssd
+      resources:
+        requests:
+          cpu: 300m
+          memory: 400Mi
+        limits:
+          cpu: 800m
+          memory: 800Mi
+  
+  ingress:
+    enabled: true
+    hosts:
+      - host: scrummate-staging.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+            service: frontend
+      - host: api-staging.scrummate.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+            service: backend
+  
+  networkPolicies:
+    enabled: true
+  
+  monitoring:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      interval: 60s
+  
+  backup:
+    enabled: true
+    schedule: "0 3 * * *"
+    retention: 14
