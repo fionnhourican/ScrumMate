@@ -1,0 +1,108 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "ScrumMate Business Metrics",
+    "tags": ["scrummate", "business", "kpi"],
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Daily Entries Created Today",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "increase(scrummate_daily_entries_created_total[24h])",
+            "legendFormat": "Entries Today"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 6, "x": 0, "y": 0}
+      },
+      {
+        "id": 2,
+        "title": "Weekly Reports Generated",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "increase(scrummate_weekly_reports_generated_total[7d])",
+            "legendFormat": "Reports This Week"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 6, "x": 6, "y": 0}
+      },
+      {
+        "id": 3,
+        "title": "Monthly Reports Generated",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "increase(scrummate_monthly_reports_generated_total[30d])",
+            "legendFormat": "Reports This Month"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 6, "x": 12, "y": 0}
+      },
+      {
+        "id": 4,
+        "title": "Report Generation Time",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(scrummate_report_generation_duration_seconds_bucket[5m]))",
+            "legendFormat": "95th percentile"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s"
+          }
+        },
+        "gridPos": {"h": 8, "w": 6, "x": 18, "y": 0}
+      },
+      {
+        "id": 5,
+        "title": "User Engagement Over Time",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "scrummate_active_users_total",
+            "legendFormat": "Active Users"
+          },
+          {
+            "expr": "rate(scrummate_user_logins_total[1h]) * 3600",
+            "legendFormat": "Logins/hour"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}
+      },
+      {
+        "id": 6,
+        "title": "Entry Creation Trends",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(scrummate_daily_entries_created_total[1h]) * 3600",
+            "legendFormat": "Entries/hour"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}
+      },
+      {
+        "id": 7,
+        "title": "Top API Endpoints",
+        "type": "table",
+        "targets": [
+          {
+            "expr": "topk(10, sum by (endpoint) (rate(http_requests_total{job=\"scrummate-backend\"}[5m])))",
+            "legendFormat": "{{ endpoint }}"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 16}
+      }
+    ],
+    "time": {
+      "from": "now-24h",
+      "to": "now"
+    },
+    "refresh": "1m"
+  }
+}
