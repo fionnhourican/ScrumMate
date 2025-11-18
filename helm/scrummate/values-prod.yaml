@@ -1,0 +1,179 @@
+# Production environment configuration
+# High availability and security settings
+
+# Backend configuration for production
+backend:
+  replicaCount: 3
+  
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 15
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+  
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchExpressions:
+          - key: app.kubernetes.io/component
+            operator: In
+            values:
+            - backend
+        topologyKey: kubernetes.io/hostname
+  
+  env:
+    logLevel: WARN
+
+# Frontend configuration for production
+frontend:
+  replicaCount: 5
+  
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+  
+  autoscaling:
+    enabled: true
+    minReplicas: 5
+    maxReplicas: 20
+    targetCPUUtilizationPercentage: 60
+    targetMemoryUtilizationPercentage: 70
+  
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+            - key: app.kubernetes.io/component
+              operator: In
+              values:
+              - frontend
+          topologyKey: kubernetes.io/hostname
+
+# PostgreSQL configuration for production
+postgresql:
+  enabled: true
+  auth:
+    database: scrummate_prod
+    username: scrummate_prod
+    existingSecret: scrummate-prod-db-secret
+  
+  primary:
+    persistence:
+      enabled: true
+      size: 20Gi
+      storageClass: fast-ssd
+    
+    resources:
+      requests:
+        cpu: 500m
+        memory: 512Mi
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+    
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: node-type
+              operator: In
+              values:
+              - database
+
+# Ingress configuration for production
+ingress:
+  enabled: true
+  annotations:
+    nginx.ingress.kubernetes.io/rate-limit: "500"
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+  
+  hosts:
+    - host: scrummate.company.com
+      paths:
+        - path: /
+          pathType: Prefix
+          service: frontend
+    - host: api.scrummate.company.com
+      paths:
+        - path: /
+          pathType: Prefix
+          service: backend
+  
+  tls:
+    - secretName: scrummate-prod-tls
+      hosts:
+        - scrummate.company.com
+        - api.scrummate.company.com
+
+# Network policies enabled for production
+networkPolicies:
+  enabled: true
+
+# Full monitoring enabled for production
+monitoring:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+    path: /actuator/prometheus
+
+# Backup enabled for production
+backup:
+  enabled: true
+  schedule: "0 2 * * *"
+  retention: 30
+
+# Security context for production
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 65534
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  seccompProfile:
+    type: RuntimeDefault
+
+# Pod security context for production
+podSecurityContext:
+  fsGroup: 65534
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+# Production secrets (use external secret management)
+secrets:
+  database:
+    username: ""  # Set via external secret management
+    password: ""  # Set via external secret management
+  jwt:
+    secret: ""    # Set via external secret management
+  registry:
+    dockerconfigjson: ""  # Set via external secret management
+
+# Global production settings
+global:
+  imagePullSecrets:
+    - name: scrummate-prod-registry-secret

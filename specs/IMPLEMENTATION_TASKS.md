@@ -321,36 +321,36 @@
   - [x] Add dependency update automation
 
 ### 4.2 Environment-Specific Configurations
-- [ ] Create development environment values
-  - [ ] Create values-dev.yaml with dev-specific settings
-  - [ ] Configure reduced resource requirements
-  - [ ] Set up development database settings
-  - [ ] Configure debug logging levels
-  - [ ] Add development-only features
-- [ ] Create staging environment values
-  - [ ] Create values-staging.yaml with staging settings
-  - [ ] Configure production-like resource settings
-  - [ ] Set up staging database configuration
-  - [ ] Configure staging ingress settings
-  - [ ] Add staging-specific monitoring
-- [ ] Create production environment values
-  - [ ] Create values-prod.yaml with production settings
-  - [ ] Configure high availability settings
-  - [ ] Set up production database configuration
-  - [ ] Configure production security settings
-  - [ ] Add production monitoring and alerting
-- [ ] Implement configuration validation
-  - [ ] Add JSON schema for values validation
-  - [ ] Create pre-install hooks for validation
-  - [ ] Set up configuration testing
-  - [ ] Add values documentation
-  - [ ] Create configuration examples
-- [ ] Set up chart testing
-  - [ ] Create chart unit tests
-  - [ ] Set up integration testing
-  - [ ] Configure chart linting
-  - [ ] Add security scanning for charts
-  - [ ] Set up automated chart testing in CI
+- [x] Create development environment values
+  - [x] Create values-dev.yaml with dev-specific settings
+  - [x] Configure reduced resource requirements
+  - [x] Set up development database settings
+  - [x] Configure debug logging levels
+  - [x] Add development-only features
+- [x] Create staging environment values
+  - [x] Create values-staging.yaml with staging settings
+  - [x] Configure production-like resource settings
+  - [x] Set up staging database configuration
+  - [x] Configure staging ingress settings
+  - [x] Add staging-specific monitoring
+- [x] Create production environment values
+  - [x] Create values-prod.yaml with production settings
+  - [x] Configure high availability settings
+  - [x] Set up production database configuration
+  - [x] Configure production security settings
+  - [x] Add production monitoring and alerting
+- [x] Implement configuration validation
+  - [x] Add JSON schema for values validation
+  - [x] Create pre-install hooks for validation
+  - [x] Set up configuration testing
+  - [x] Add values documentation
+  - [x] Create configuration examples
+- [x] Set up chart testing
+  - [x] Create chart unit tests
+  - [x] Set up integration testing
+  - [x] Configure chart linting
+  - [x] Add security scanning for charts
+  - [x] Set up automated chart testing in CI
 
 ## Phase 5: Helmfile Deployment Automation (Sprint 5)
 

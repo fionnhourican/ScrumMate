@@ -1,0 +1,115 @@
+# Staging environment configuration
+# Production-like settings with moderate resources
+
+# Backend configuration for staging
+backend:
+  replicaCount: 2
+  
+  resources:
+    requests:
+      cpu: 400m
+      memory: 400Mi
+    limits:
+      cpu: 800m
+      memory: 800Mi
+  
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 75
+    targetMemoryUtilizationPercentage: 85
+  
+  env:
+    logLevel: INFO
+
+# Frontend configuration for staging
+frontend:
+  replicaCount: 2
+  
+  resources:
+    requests:
+      cpu: 80m
+      memory: 100Mi
+    limits:
+      cpu: 400m
+      memory: 200Mi
+  
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 8
+    targetCPUUtilizationPercentage: 65
+    targetMemoryUtilizationPercentage: 75
+
+# PostgreSQL configuration for staging
+postgresql:
+  enabled: true
+  auth:
+    database: scrummate_staging
+    username: scrummate_staging
+    password: stagingpassword456
+  
+  primary:
+    persistence:
+      enabled: true
+      size: 5Gi
+      storageClass: fast-ssd
+    
+    resources:
+      requests:
+        cpu: 300m
+        memory: 400Mi
+      limits:
+        cpu: 800m
+        memory: 800Mi
+
+# Ingress configuration for staging
+ingress:
+  enabled: true
+  annotations:
+    nginx.ingress.kubernetes.io/rate-limit: "200"
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+  
+  hosts:
+    - host: scrummate-staging.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+          service: frontend
+    - host: api-staging.scrummate.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+          service: backend
+  
+  tls:
+    - secretName: scrummate-staging-tls
+      hosts:
+        - scrummate-staging.example.com
+        - api-staging.scrummate.example.com
+
+# Network policies enabled for staging
+networkPolicies:
+  enabled: true
+
+# Monitoring enabled for staging
+monitoring:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    interval: 60s
+
+# Backup enabled for staging
+backup:
+  enabled: true
+  schedule: "0 3 * * *"
+  retention: 14
+
+# Secrets for staging (use external secret management in real deployment)
+secrets:
+  database:
+    username: scrummate_staging
+    password: stagingpassword456
+  jwt:
+    secret: staging-jwt-secret-key-change-in-production

@@ -1,0 +1,79 @@
+# Development environment configuration
+# Reduced resources and debug settings
+
+# Backend configuration for development
+backend:
+  replicaCount: 1
+  
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  
+  autoscaling:
+    enabled: false
+  
+  env:
+    logLevel: DEBUG
+
+# Frontend configuration for development
+frontend:
+  replicaCount: 1
+  
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+  
+  autoscaling:
+    enabled: false
+  
+  service:
+    type: NodePort
+
+# PostgreSQL configuration for development
+postgresql:
+  enabled: true
+  auth:
+    database: scrummate_dev
+    username: scrummate_dev
+    password: devpassword123
+  
+  primary:
+    persistence:
+      enabled: true
+      size: 2Gi
+    
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+
+# Ingress configuration for development
+ingress:
+  enabled: false
+
+# Network policies disabled for easier development
+networkPolicies:
+  enabled: false
+
+# Monitoring disabled for development
+monitoring:
+  enabled: false
+
+# Secrets for development
+secrets:
+  database:
+    username: scrummate_dev
+    password: devpassword123
+  jwt:
+    secret: dev-jwt-secret-key-not-for-production

@@ -1,0 +1,66 @@
+suite: test deployment
+templates:
+  - deployments/backend-deployment.yaml
+  - deployments/frontend-deployment.yaml
+tests:
+  - it: should create backend deployment when enabled
+    set:
+      backend.enabled: true
+    template: deployments/backend-deployment.yaml
+    asserts:
+      - isKind:
+          of: Deployment
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-scrummate-backend
+      - equal:
+          path: spec.replicas
+          value: 2
+
+  - it: should not create backend deployment when disabled
+    set:
+      backend.enabled: false
+    template: deployments/backend-deployment.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should create frontend deployment when enabled
+    set:
+      frontend.enabled: true
+    template: deployments/frontend-deployment.yaml
+    asserts:
+      - isKind:
+          of: Deployment
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-scrummate-frontend
+      - equal:
+          path: spec.replicas
+          value: 3
+
+  - it: should set correct security context
+    set:
+      backend.enabled: true
+    template: deployments/backend-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+
+  - it: should set resource limits
+    set:
+      backend.enabled: true
+      backend.resources.limits.cpu: "1000m"
+      backend.resources.limits.memory: "1Gi"
+    template: deployments/backend-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits.cpu
+          value: "1000m"
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits.memory
+          value: "1Gi"
