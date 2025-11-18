@@ -1,0 +1,87 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  database:
+    image: postgres:15-alpine
+    container_name: scrummate-db
+    environment:
+      POSTGRES_DB: scrummate
+      POSTGRES_USER: scrummate
+      POSTGRES_PASSWORD: password
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/docker/postgres/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+      - ./infrastructure/docker/postgres/backup.sh:/usr/local/bin/backup.sh
+      - backup_data:/backups
+    ports:
+      - "5432:5432"
+    networks:
+      - scrummate-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U scrummate -d scrummate"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Spring Boot Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: scrummate-backend
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      DB_USERNAME: scrummate
+      DB_PASSWORD: password
+      SPRING_DATASOURCE_URL: jdbc:postgresql://database:5432/scrummate
+      JWT_SECRET: myVerySecretJWTKey123456789
+    ports:
+      - "8080:8080"
+    depends_on:
+      database:
+        condition: service_healthy
+    networks:
+      - scrummate-network
+    volumes:
+      - ./backend/src:/app/src:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+
+  # React Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: scrummate-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - scrummate-network
+    volumes:
+      - ./frontend/src:/app/src:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  postgres_data:
+    driver: local
+  backup_data:
+    driver: local
+
+networks:
+  scrummate-network:
+    driver: bridge

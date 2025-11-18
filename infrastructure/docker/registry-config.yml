@@ -1,0 +1,42 @@
+# Docker Registry Configuration for ScrumMate
+
+# Registry Settings
+registry:
+  url: "docker.io"  # Docker Hub (change to private registry if needed)
+  namespace: "scrummate"
+  
+# Image Configuration
+images:
+  backend:
+    name: "scrummate-backend"
+    tags:
+      - "latest"
+      - "v1.0.0"
+    platforms:
+      - "linux/amd64"
+      - "linux/arm64"
+  
+  frontend:
+    name: "scrummate-frontend"
+    tags:
+      - "latest"
+      - "v1.0.0"
+    platforms:
+      - "linux/amd64"
+      - "linux/arm64"
+
+# Build Configuration
+build:
+  cache: true
+  push: true
+  
+# Security Scanning
+security:
+  scan_on_build: true
+  fail_on_critical: true
+  
+# Retention Policy
+retention:
+  keep_latest: 10
+  keep_days: 30
+  cleanup_untagged: true

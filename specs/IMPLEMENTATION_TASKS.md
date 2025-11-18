@@ -142,40 +142,40 @@
 ## Phase 2: Containerization (Sprint 2)
 
 ### 2.1 Docker Implementation
-- [ ] Create backend Dockerfile
-  - [ ] Set up multi-stage build with Maven
-  - [ ] Use OpenJDK 17 slim base image
-  - [ ] Configure non-root user for security
-  - [ ] Set up proper working directory structure
-  - [ ] Configure JVM memory settings
-  - [ ] Add health check endpoint
-  - [ ] Optimize layer caching for faster builds
-- [ ] Create frontend Dockerfile
-  - [ ] Set up multi-stage build (build + serve)
-  - [ ] Use Node.js 18 for build stage
-  - [ ] Use nginx:alpine for serve stage
-  - [ ] Configure nginx for SPA routing
-  - [ ] Add gzip compression configuration
-  - [ ] Set up security headers
-  - [ ] Configure static asset caching
-- [ ] Create database Docker setup
-  - [ ] Use official PostgreSQL 15 image
-  - [ ] Configure initialization scripts
-  - [ ] Set up persistent volume mounting
-  - [ ] Configure database user and permissions
-  - [ ] Add backup script configuration
-- [ ] Create docker-compose for development
-  - [ ] Define all three services (frontend, backend, db)
-  - [ ] Set up service dependencies
-  - [ ] Configure environment variables
-  - [ ] Set up volume mounts for development
-  - [ ] Add network configuration
-  - [ ] Configure port mappings
-- [ ] Set up Docker registry
-  - [ ] Configure Docker Hub or private registry
-  - [ ] Set up automated image tagging
-  - [ ] Configure image scanning for vulnerabilities
-  - [ ] Set up image retention policies
+- [x] Create backend Dockerfile
+  - [x] Set up multi-stage build with Maven
+  - [x] Use OpenJDK 17 slim base image
+  - [x] Configure non-root user for security
+  - [x] Set up proper working directory structure
+  - [x] Configure JVM memory settings
+  - [x] Add health check endpoint
+  - [x] Optimize layer caching for faster builds
+- [x] Create frontend Dockerfile
+  - [x] Set up multi-stage build (build + serve)
+  - [x] Use Node.js 18 for build stage
+  - [x] Use nginx:alpine for serve stage
+  - [x] Configure nginx for SPA routing
+  - [x] Add gzip compression configuration
+  - [x] Set up security headers
+  - [x] Configure static asset caching
+- [x] Create database Docker setup
+  - [x] Use official PostgreSQL 15 image
+  - [x] Configure initialization scripts
+  - [x] Set up persistent volume mounting
+  - [x] Configure database user and permissions
+  - [x] Add backup script configuration
+- [x] Create docker-compose for development
+  - [x] Define all three services (frontend, backend, db)
+  - [x] Set up service dependencies
+  - [x] Configure environment variables
+  - [x] Set up volume mounts for development
+  - [x] Add network configuration
+  - [x] Configure port mappings
+- [x] Set up Docker registry
+  - [x] Configure Docker Hub or private registry
+  - [x] Set up automated image tagging
+  - [x] Configure image scanning for vulnerabilities
+  - [x] Set up image retention policies
 
 ### 2.2 Container Optimization
 - [ ] Implement health checks
