@@ -1,0 +1,152 @@
+# Copyright (c) 2025 Telefonaktiebolaget LM Ericsson
+# ScrumMate OPA Gatekeeper Policies
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gatekeeper-system
+---
+apiVersion: templates.gatekeeper.sh/v1beta1
+kind: ConstraintTemplate
+metadata:
+  name: scrummateresourcequota
+spec:
+  crd:
+    spec:
+      names:
+        kind: ScrumMateResourceQuota
+      validation:
+        openAPIV3Schema:
+          type: object
+          properties:
+            maxCpu:
+              type: string
+            maxMemory:
+              type: string
+            maxReplicas:
+              type: integer
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package scrummateresourcequota
+        
+        violation[{"msg": msg}] {
+          input.review.kind.kind == "Deployment"
+          input.review.object.spec.replicas > input.parameters.maxReplicas
+          msg := sprintf("Deployment replicas %v exceeds maximum allowed %v", [input.review.object.spec.replicas, input.parameters.maxReplicas])
+        }
+        
+        violation[{"msg": msg}] {
+          input.review.kind.kind == "Deployment"
+          container := input.review.object.spec.template.spec.containers[_]
+          cpu_limit := container.resources.limits.cpu
+          cpu_limit > input.parameters.maxCpu
+          msg := sprintf("Container CPU limit %v exceeds maximum allowed %v", [cpu_limit, input.parameters.maxCpu])
+        }
+        
+        violation[{"msg": msg}] {
+          input.review.kind.kind == "Deployment"
+          container := input.review.object.spec.template.spec.containers[_]
+          memory_limit := container.resources.limits.memory
+          memory_limit > input.parameters.maxMemory
+          msg := sprintf("Container memory limit %v exceeds maximum allowed %v", [memory_limit, input.parameters.maxMemory])
+        }
+---
+apiVersion: config.gatekeeper.sh/v1alpha1
+kind: ScrumMateResourceQuota
+metadata:
+  name: scrummate-dev-quota
+spec:
+  match:
+    - apiGroups: ["apps"]
+      kinds: ["Deployment"]
+      namespaces: ["scrummate-dev"]
+  parameters:
+    maxCpu: "1000m"
+    maxMemory: "2Gi"
+    maxReplicas: 3
+---
+apiVersion: config.gatekeeper.sh/v1alpha1
+kind: ScrumMateResourceQuota
+metadata:
+  name: scrummate-prod-quota
+spec:
+  match:
+    - apiGroups: ["apps"]
+      kinds: ["Deployment"]
+      namespaces: ["scrummate-prod"]
+  parameters:
+    maxCpu: "4000m"
+    maxMemory: "8Gi"
+    maxReplicas: 10
+---
+apiVersion: templates.gatekeeper.sh/v1beta1
+kind: ConstraintTemplate
+metadata:
+  name: scrummatesecurity
+spec:
+  crd:
+    spec:
+      names:
+        kind: ScrumMateSecurity
+      validation:
+        openAPIV3Schema:
+          type: object
+          properties:
+            requiredLabels:
+              type: array
+              items:
+                type: string
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package scrummatesecurity
+        
+        violation[{"msg": msg}] {
+          input.review.kind.kind == "Pod"
+          container := input.review.object.spec.containers[_]
+          container.securityContext.runAsRoot == true
+          msg := "Containers must not run as root"
+        }
+        
+        violation[{"msg": msg}] {
+          input.review.kind.kind == "Pod"
+          container := input.review.object.spec.containers[_]
+          container.securityContext.privileged == true
+          msg := "Containers must not run in privileged mode"
+        }
+        
+        violation[{"msg": msg}] {
+          required := input.parameters.requiredLabels
+          provided := input.review.object.metadata.labels
+          missing := required[_]
+          not provided[missing]
+          msg := sprintf("Missing required label: %v", [missing])
+        }
+---
+apiVersion: config.gatekeeper.sh/v1alpha1
+kind: ScrumMateSecurity
+metadata:
+  name: scrummate-security-policy
+spec:
+  match:
+    - apiGroups: [""]
+      kinds: ["Pod"]
+      namespaces: ["scrummate-dev", "scrummate-staging", "scrummate-prod"]
+  parameters:
+    requiredLabels: ["app", "version", "environment"]
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gatekeeper-audit-config
+  namespace: gatekeeper-system
+data:
+  config.yaml: |
+    auditInterval: 60
+    constraintViolationsLimit: 20
+    auditFromCache: false
+    auditChunkSize: 500
+    logLevel: INFO
+    emitAuditEvents: true
+    emitAdmissionEvents: true

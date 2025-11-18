@@ -1,0 +1,284 @@
+# Copyright (c) 2025 Telefonaktiebolaget LM Ericsson
+# ScrumMate Compliance Monitoring Dashboard
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: compliance-dashboard
+  namespace: monitoring
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: compliance-dashboard
+  template:
+    metadata:
+      labels:
+        app: compliance-dashboard
+    spec:
+      containers:
+      - name: compliance-dashboard
+        image: grafana/grafana:10.2.0
+        ports:
+        - containerPort: 3000
+        env:
+        - name: GF_SECURITY_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: compliance-dashboard-secret
+              key: admin-password
+        - name: GF_INSTALL_PLUGINS
+          value: "grafana-piechart-panel,grafana-worldmap-panel,grafana-clock-panel"
+        resources:
+          requests:
+            memory: 512Mi
+            cpu: 250m
+          limits:
+            memory: 1Gi
+            cpu: 500m
+        volumeMounts:
+        - name: compliance-dashboards
+          mountPath: /var/lib/grafana/dashboards
+        - name: dashboard-config
+          mountPath: /etc/grafana/provisioning/dashboards
+        - name: datasource-config
+          mountPath: /etc/grafana/provisioning/datasources
+      volumes:
+      - name: compliance-dashboards
+        configMap:
+          name: compliance-dashboards
+      - name: dashboard-config
+        configMap:
+          name: dashboard-provisioning
+      - name: datasource-config
+        configMap:
+          name: datasource-provisioning
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: compliance-dashboard
+  namespace: monitoring
+spec:
+  selector:
+    app: compliance-dashboard
+  ports:
+  - port: 3000
+    targetPort: 3000
+  type: LoadBalancer
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: compliance-dashboards
+  namespace: monitoring
+data:
+  compliance-overview.json: |
+    {
+      "dashboard": {
+        "id": null,
+        "title": "ScrumMate Compliance Overview",
+        "tags": ["compliance", "governance"],
+        "timezone": "browser",
+        "panels": [
+          {
+            "id": 1,
+            "title": "Policy Violations",
+            "type": "stat",
+            "targets": [
+              {
+                "expr": "sum(gatekeeper_violations_total)",
+                "legendFormat": "Total Violations"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "thresholds"
+                },
+                "thresholds": {
+                  "steps": [
+                    {"color": "green", "value": null},
+                    {"color": "yellow", "value": 1},
+                    {"color": "red", "value": 10}
+                  ]
+                }
+              }
+            },
+            "gridPos": {"h": 8, "w": 6, "x": 0, "y": 0}
+          },
+          {
+            "id": 2,
+            "title": "Resource Quota Usage",
+            "type": "gauge",
+            "targets": [
+              {
+                "expr": "kube_resourcequota{resource=\"requests.cpu\", type=\"used\"} / kube_resourcequota{resource=\"requests.cpu\", type=\"hard\"} * 100",
+                "legendFormat": "CPU Usage %"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "percent",
+                "max": 100,
+                "thresholds": {
+                  "steps": [
+                    {"color": "green", "value": null},
+                    {"color": "yellow", "value": 70},
+                    {"color": "red", "value": 85}
+                  ]
+                }
+              }
+            },
+            "gridPos": {"h": 8, "w": 6, "x": 6, "y": 0}
+          },
+          {
+            "id": 3,
+            "title": "Backup Success Rate",
+            "type": "stat",
+            "targets": [
+              {
+                "expr": "rate(backup_jobs_completed_total[24h]) / rate(backup_jobs_started_total[24h]) * 100",
+                "legendFormat": "Success Rate"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "percent",
+                "thresholds": {
+                  "steps": [
+                    {"color": "red", "value": null},
+                    {"color": "yellow", "value": 95},
+                    {"color": "green", "value": 99}
+                  ]
+                }
+              }
+            },
+            "gridPos": {"h": 8, "w": 6, "x": 12, "y": 0}
+          },
+          {
+            "id": 4,
+            "title": "Audit Events",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "rate(audit_events_total[5m])",
+                "legendFormat": "Events/sec"
+              }
+            ],
+            "gridPos": {"h": 8, "w": 6, "x": 18, "y": 0}
+          }
+        ],
+        "time": {
+          "from": "now-24h",
+          "to": "now"
+        },
+        "refresh": "30s"
+      }
+    }
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: compliance-report
+  namespace: monitoring
+spec:
+  schedule: "0 6 * * 1"  # Weekly on Monday
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: compliance-report
+            image: curlimages/curl:latest
+            command:
+            - /bin/sh
+            - -c
+            - |
+              # Generate compliance report
+              REPORT_DATE=$(date +%Y-%m-%d)
+              REPORT_FILE="/tmp/compliance-report-$REPORT_DATE.json"
+              
+              # Collect compliance metrics
+              cat > "$REPORT_FILE" <<EOF
+              {
+                "report_date": "$REPORT_DATE",
+                "compliance_metrics": {
+                  "policy_violations": $(curl -s "http://prometheus:9090/api/v1/query?query=sum(gatekeeper_violations_total)" | jq -r '.data.result[0].value[1] // "0"'),
+                  "resource_quota_usage": {
+                    "cpu": $(curl -s "http://prometheus:9090/api/v1/query?query=avg(kube_resourcequota{resource=\"requests.cpu\",type=\"used\"}/kube_resourcequota{resource=\"requests.cpu\",type=\"hard\"}*100)" | jq -r '.data.result[0].value[1] // "0"'),
+                    "memory": $(curl -s "http://prometheus:9090/api/v1/query?query=avg(kube_resourcequota{resource=\"requests.memory\",type=\"used\"}/kube_resourcequota{resource=\"requests.memory\",type=\"hard\"}*100)" | jq -r '.data.result[0].value[1] // "0"')
+                  },
+                  "backup_success_rate": $(curl -s "http://prometheus:9090/api/v1/query?query=rate(backup_jobs_completed_total[7d])/rate(backup_jobs_started_total[7d])*100" | jq -r '.data.result[0].value[1] // "0"'),
+                  "security_events": $(curl -s "http://prometheus:9090/api/v1/query?query=increase(security_events_total[7d])" | jq -r '.data.result[0].value[1] // "0"')
+                },
+                "compliance_status": "$([ $(curl -s "http://prometheus:9090/api/v1/query?query=sum(gatekeeper_violations_total)" | jq -r '.data.result[0].value[1] // "0"') -eq 0 ] && echo "COMPLIANT" || echo "NON_COMPLIANT")"
+              }
+              EOF
+              
+              # Send report
+              curl -X POST "${COMPLIANCE_WEBHOOK_URL}" \
+                -H "Content-Type: application/json" \
+                -d @"$REPORT_FILE"
+              
+              echo "Compliance report sent for $REPORT_DATE"
+            env:
+            - name: COMPLIANCE_WEBHOOK_URL
+              value: "https://compliance.company.com/weekly-reports"
+          restartPolicy: OnFailure
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: compliance-alerts
+  namespace: monitoring
+  labels:
+    app: scrummate
+spec:
+  groups:
+  - name: compliance.rules
+    rules:
+    - alert: PolicyViolationDetected
+      expr: increase(gatekeeper_violations_total[5m]) > 0
+      for: 0m
+      labels:
+        severity: warning
+      annotations:
+        summary: "Policy violation detected"
+        description: "Gatekeeper has detected {{ $value }} policy violations in the last 5 minutes"
+    
+    - alert: ComplianceReportFailed
+      expr: up{job="compliance-report"} == 0
+      for: 5m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Compliance reporting system down"
+        description: "The compliance reporting system has been down for more than 5 minutes"
+    
+    - alert: BackupFailure
+      expr: increase(backup_jobs_failed_total[24h]) > 0
+      for: 0m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Backup job failed"
+        description: "{{ $value }} backup jobs have failed in the last 24 hours"
+    
+    - alert: AuditLogIngestionFailure
+      expr: rate(audit_log_ingestion_errors_total[5m]) > 0.1
+      for: 2m
+      labels:
+        severity: warning
+      annotations:
+        summary: "Audit log ingestion errors"
+        description: "Audit log ingestion is experiencing errors at {{ $value }} errors/sec"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: compliance-dashboard-secret
+  namespace: monitoring
+type: Opaque
+data:
+  admin-password: Y29tcGxpYW5jZTEyMw==  # compliance123

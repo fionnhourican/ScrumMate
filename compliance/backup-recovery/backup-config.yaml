@@ -1,0 +1,256 @@
+# Copyright (c) 2025 Telefonaktiebolaget LM Ericsson
+# ScrumMate Backup and Recovery Configuration
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: backup
+---
+# Database backup CronJob
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: postgresql-backup
+  namespace: backup
+spec:
+  schedule: "0 2 * * *"
+  successfulJobsHistoryLimit: 7
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: postgres-backup
+            image: postgres:15
+            command:
+            - /bin/bash
+            - -c
+            - |
+              # Create backup directory
+              BACKUP_DIR="/backups/$(date +%Y%m%d_%H%M%S)"
+              mkdir -p "$BACKUP_DIR"
+              
+              # Perform database backup
+              pg_dump -h postgresql.scrummate-prod -U postgres -d scrummate \
+                --verbose --clean --no-owner --no-privileges \
+                --format=custom > "$BACKUP_DIR/scrummate_backup.dump"
+              
+              # Create metadata file
+              cat > "$BACKUP_DIR/backup_metadata.json" <<EOF
+              {
+                "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+                "database": "scrummate",
+                "size": "$(du -h $BACKUP_DIR/scrummate_backup.dump | cut -f1)",
+                "type": "full",
+                "retention_days": 30
+              }
+              EOF
+              
+              # Compress backup
+              tar -czf "$BACKUP_DIR.tar.gz" -C "$(dirname $BACKUP_DIR)" "$(basename $BACKUP_DIR)"
+              rm -rf "$BACKUP_DIR"
+              
+              # Upload to S3 (if configured)
+              if [ -n "${AWS_S3_BUCKET}" ]; then
+                aws s3 cp "$BACKUP_DIR.tar.gz" "s3://${AWS_S3_BUCKET}/database-backups/"
+              fi
+              
+              # Cleanup old backups (keep 30 days)
+              find /backups -name "*.tar.gz" -mtime +30 -delete
+              
+              echo "Backup completed: $BACKUP_DIR.tar.gz"
+            env:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgresql-credentials
+                  key: password
+            - name: AWS_S3_BUCKET
+              value: "scrummate-backups"
+            volumeMounts:
+            - name: backup-storage
+              mountPath: /backups
+          volumes:
+          - name: backup-storage
+            persistentVolumeClaim:
+              claimName: backup-pvc
+          restartPolicy: OnFailure
+---
+# Configuration backup CronJob
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: config-backup
+  namespace: backup
+spec:
+  schedule: "0 3 * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: config-backup
+          containers:
+          - name: config-backup
+            image: bitnami/kubectl:latest
+            command:
+            - /bin/bash
+            - -c
+            - |
+              BACKUP_DIR="/backups/config/$(date +%Y%m%d_%H%M%S)"
+              mkdir -p "$BACKUP_DIR"
+              
+              # Backup Kubernetes configurations
+              for ns in scrummate-dev scrummate-staging scrummate-prod; do
+                kubectl get all,configmaps,secrets,pvc -n $ns -o yaml > "$BACKUP_DIR/${ns}-resources.yaml"
+              done
+              
+              # Backup Helm releases
+              helm list --all-namespaces -o yaml > "$BACKUP_DIR/helm-releases.yaml"
+              
+              # Backup custom resources
+              kubectl get gatekeeper -o yaml > "$BACKUP_DIR/gatekeeper-config.yaml"
+              kubectl get prometheusrules -o yaml > "$BACKUP_DIR/prometheus-rules.yaml"
+              
+              # Create backup archive
+              tar -czf "$BACKUP_DIR.tar.gz" -C "$(dirname $BACKUP_DIR)" "$(basename $BACKUP_DIR)"
+              rm -rf "$BACKUP_DIR"
+              
+              # Upload to S3
+              if [ -n "${AWS_S3_BUCKET}" ]; then
+                aws s3 cp "$BACKUP_DIR.tar.gz" "s3://${AWS_S3_BUCKET}/config-backups/"
+              fi
+              
+              echo "Configuration backup completed: $BACKUP_DIR.tar.gz"
+            env:
+            - name: AWS_S3_BUCKET
+              value: "scrummate-backups"
+            volumeMounts:
+            - name: backup-storage
+              mountPath: /backups
+          volumes:
+          - name: backup-storage
+            persistentVolumeClaim:
+              claimName: backup-pvc
+          restartPolicy: OnFailure
+---
+# Backup testing job
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: backup-test
+  namespace: backup
+spec:
+  schedule: "0 4 * * 0"  # Weekly on Sunday
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: backup-test
+            image: postgres:15
+            command:
+            - /bin/bash
+            - -c
+            - |
+              # Find latest backup
+              LATEST_BACKUP=$(ls -t /backups/*.tar.gz | head -1)
+              
+              if [ -z "$LATEST_BACKUP" ]; then
+                echo "No backup found for testing"
+                exit 1
+              fi
+              
+              # Extract backup
+              TEST_DIR="/tmp/backup_test_$(date +%s)"
+              mkdir -p "$TEST_DIR"
+              tar -xzf "$LATEST_BACKUP" -C "$TEST_DIR"
+              
+              # Test database restore
+              DUMP_FILE=$(find "$TEST_DIR" -name "*.dump" | head -1)
+              
+              if [ -n "$DUMP_FILE" ]; then
+                # Create test database
+                createdb -h postgresql.scrummate-prod -U postgres scrummate_test
+                
+                # Restore backup
+                pg_restore -h postgresql.scrummate-prod -U postgres -d scrummate_test \
+                  --verbose --clean --no-owner --no-privileges "$DUMP_FILE"
+                
+                # Verify restore
+                TABLE_COUNT=$(psql -h postgresql.scrummate-prod -U postgres -d scrummate_test \
+                  -t -c "SELECT count(*) FROM information_schema.tables WHERE table_schema='public';")
+                
+                if [ "$TABLE_COUNT" -gt 0 ]; then
+                  echo "Backup test PASSED: $TABLE_COUNT tables restored"
+                else
+                  echo "Backup test FAILED: No tables found"
+                  exit 1
+                fi
+                
+                # Cleanup test database
+                dropdb -h postgresql.scrummate-prod -U postgres scrummate_test
+              else
+                echo "No dump file found in backup"
+                exit 1
+              fi
+              
+              # Cleanup
+              rm -rf "$TEST_DIR"
+            env:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgresql-credentials
+                  key: password
+            volumeMounts:
+            - name: backup-storage
+              mountPath: /backups
+          volumes:
+          - name: backup-storage
+            persistentVolumeClaim:
+              claimName: backup-pvc
+          restartPolicy: OnFailure
+---
+# Backup storage
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: backup-pvc
+  namespace: backup
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 500Gi
+  storageClassName: backup-storage
+---
+# Service account for config backup
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: config-backup
+  namespace: backup
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: config-backup
+rules:
+- apiGroups: ["*"]
+  resources: ["*"]
+  verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: config-backup
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: config-backup
+subjects:
+- kind: ServiceAccount
+  name: config-backup
+  namespace: backup

@@ -1,0 +1,186 @@
+# Copyright (c) 2025 Telefonaktiebolaget LM Ericsson
+# ScrumMate Resource Governance
+
+# Development environment quotas
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: scrummate-dev-compute-quota
+  namespace: scrummate-dev
+spec:
+  hard:
+    requests.cpu: "4"
+    requests.memory: 8Gi
+    limits.cpu: "8"
+    limits.memory: 16Gi
+    pods: "20"
+    services: "10"
+    persistentvolumeclaims: "5"
+    secrets: "10"
+    configmaps: "10"
+---
+# Staging environment quotas
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: scrummate-staging-compute-quota
+  namespace: scrummate-staging
+spec:
+  hard:
+    requests.cpu: "8"
+    requests.memory: 16Gi
+    limits.cpu: "16"
+    limits.memory: 32Gi
+    pods: "40"
+    services: "20"
+    persistentvolumeclaims: "10"
+    secrets: "20"
+    configmaps: "20"
+---
+# Production environment quotas
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: scrummate-prod-compute-quota
+  namespace: scrummate-prod
+spec:
+  hard:
+    requests.cpu: "16"
+    requests.memory: 32Gi
+    limits.cpu: "32"
+    limits.memory: 64Gi
+    pods: "100"
+    services: "50"
+    persistentvolumeclaims: "20"
+    secrets: "50"
+    configmaps: "50"
+---
+# Cost allocation labels
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cost-allocation-config
+  namespace: scrummate-prod
+data:
+  cost-labels.yaml: |
+    costAllocation:
+      labels:
+        - key: "cost-center"
+          values: ["engineering", "operations", "security"]
+        - key: "project"
+          values: ["scrummate"]
+        - key: "environment"
+          values: ["dev", "staging", "prod"]
+        - key: "team"
+          values: ["backend", "frontend", "devops"]
+      
+      quotas:
+        engineering:
+          cpu: "20"
+          memory: "40Gi"
+          storage: "500Gi"
+        operations:
+          cpu: "8"
+          memory: "16Gi"
+          storage: "200Gi"
+        security:
+          cpu: "4"
+          memory: "8Gi"
+          storage: "100Gi"
+---
+# Resource monitoring
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: resource-usage-monitor
+  namespace: scrummate-prod
+spec:
+  schedule: "0 */6 * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: resource-monitor
+            image: bitnami/kubectl:latest
+            command:
+            - /bin/bash
+            - -c
+            - |
+              # Collect resource usage data
+              echo "$(date): Resource Usage Report" > /tmp/resource-report.txt
+              
+              for ns in scrummate-dev scrummate-staging scrummate-prod; do
+                echo "=== Namespace: $ns ===" >> /tmp/resource-report.txt
+                kubectl top pods -n $ns --no-headers >> /tmp/resource-report.txt
+                kubectl describe quota -n $ns >> /tmp/resource-report.txt
+                echo "" >> /tmp/resource-report.txt
+              done
+              
+              # Calculate cost allocation
+              kubectl get pods --all-namespaces -o json | \
+              jq -r '.items[] | select(.metadata.labels."cost-center") | 
+                "\(.metadata.namespace),\(.metadata.name),\(.metadata.labels."cost-center"),\(.spec.containers[].resources.requests.cpu // "0"),\(.spec.containers[].resources.requests.memory // "0")"' \
+                >> /tmp/cost-allocation.csv
+              
+              # Send to monitoring system
+              if [ -n "${WEBHOOK_URL}" ]; then
+                curl -X POST "${WEBHOOK_URL}" \
+                  -H "Content-Type: application/json" \
+                  -d "{\"report\": \"$(cat /tmp/resource-report.txt | base64 -w 0)\"}"
+              fi
+            env:
+            - name: WEBHOOK_URL
+              value: "https://monitoring.company.com/resource-reports"
+          restartPolicy: OnFailure
+---
+# Capacity planning alerts
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: capacity-planning-alerts
+  namespace: monitoring
+  labels:
+    app: scrummate
+spec:
+  groups:
+  - name: capacity.rules
+    rules:
+    - alert: NamespaceResourceQuotaExceeded
+      expr: |
+        (
+          kube_resourcequota{resource="requests.cpu", type="used"} / 
+          kube_resourcequota{resource="requests.cpu", type="hard"}
+        ) > 0.85
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "Namespace {{ $labels.namespace }} CPU quota usage high"
+        description: "CPU quota usage is {{ $value | humanizePercentage }} in namespace {{ $labels.namespace }}"
+    
+    - alert: NamespaceMemoryQuotaExceeded
+      expr: |
+        (
+          kube_resourcequota{resource="requests.memory", type="used"} / 
+          kube_resourcequota{resource="requests.memory", type="hard"}
+        ) > 0.85
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "Namespace {{ $labels.namespace }} memory quota usage high"
+        description: "Memory quota usage is {{ $value | humanizePercentage }} in namespace {{ $labels.namespace }}"
+    
+    - alert: PodQuotaExceeded
+      expr: |
+        (
+          kube_resourcequota{resource="pods", type="used"} / 
+          kube_resourcequota{resource="pods", type="hard"}
+        ) > 0.9
+      for: 2m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Namespace {{ $labels.namespace }} approaching pod limit"
+        description: "Pod count is {{ $value | humanizePercentage }} of quota in namespace {{ $labels.namespace }}"
