@@ -287,38 +287,38 @@
 ## Phase 4: Helm Package Management (Sprint 4)
 
 ### 4.1 Helm Chart Development
-- [ ] Create Helm chart foundation
-  - [ ] Initialize Helm chart with `helm create scrummate`
-  - [ ] Configure Chart.yaml with metadata
-  - [ ] Set up chart versioning strategy
-  - [ ] Add chart description and keywords
-  - [ ] Configure chart maintainers and sources
-- [ ] Implement templated manifests
-  - [ ] Convert deployment manifests to Helm templates
-  - [ ] Convert service manifests to Helm templates
-  - [ ] Convert ConfigMap manifests to Helm templates
-  - [ ] Convert Secret manifests to Helm templates
-  - [ ] Convert Ingress manifests to Helm templates
-  - [ ] Convert PVC manifests to Helm templates
-- [ ] Create helper templates
-  - [ ] Add _helpers.tpl with common labels
-  - [ ] Create template for resource names
-  - [ ] Add template for selector labels
-  - [ ] Create template for image tags
-  - [ ] Add template for environment variables
-- [ ] Configure values.yaml structure
-  - [ ] Define global values section
-  - [ ] Configure frontend service values
-  - [ ] Configure backend service values
-  - [ ] Configure database values
-  - [ ] Set up ingress configuration values
-  - [ ] Add resource limits and requests values
-- [ ] Set up chart dependencies
-  - [ ] Add PostgreSQL chart as dependency
-  - [ ] Configure Redis chart for caching (optional)
-  - [ ] Set up monitoring chart dependencies
-  - [ ] Configure dependency version constraints
-  - [ ] Add dependency update automation
+- [x] Create Helm chart foundation
+  - [x] Initialize Helm chart with `helm create scrummate`
+  - [x] Configure Chart.yaml with metadata
+  - [x] Set up chart versioning strategy
+  - [x] Add chart description and keywords
+  - [x] Configure chart maintainers and sources
+- [x] Implement templated manifests
+  - [x] Convert deployment manifests to Helm templates
+  - [x] Convert service manifests to Helm templates
+  - [x] Convert ConfigMap manifests to Helm templates
+  - [x] Convert Secret manifests to Helm templates
+  - [x] Convert Ingress manifests to Helm templates
+  - [x] Convert PVC manifests to Helm templates
+- [x] Create helper templates
+  - [x] Add _helpers.tpl with common labels
+  - [x] Create template for resource names
+  - [x] Add template for selector labels
+  - [x] Create template for image tags
+  - [x] Add template for environment variables
+- [x] Configure values.yaml structure
+  - [x] Define global values section
+  - [x] Configure frontend service values
+  - [x] Configure backend service values
+  - [x] Configure database values
+  - [x] Set up ingress configuration values
+  - [x] Add resource limits and requests values
+- [x] Set up chart dependencies
+  - [x] Add PostgreSQL chart as dependency
+  - [x] Configure Redis chart for caching (optional)
+  - [x] Set up monitoring chart dependencies
+  - [x] Configure dependency version constraints
+  - [x] Add dependency update automation
 
 ### 4.2 Environment-Specific Configurations
 - [ ] Create development environment values

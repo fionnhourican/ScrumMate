@@ -1,0 +1,69 @@
+{{- if .Values.rbac.create -}}
+{{- if .Values.backend.serviceAccount.create -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "scrummate.backend.serviceAccountName" . }}
+  labels:
+    {{- include "scrummate.backend.labels" . | nindent 4 }}
+  {{- with .Values.backend.serviceAccount.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+---
+{{- end }}
+{{- if .Values.frontend.serviceAccount.create -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "scrummate.frontend.serviceAccountName" . }}
+  labels:
+    {{- include "scrummate.frontend.labels" . | nindent 4 }}
+  {{- with .Values.frontend.serviceAccount.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+---
+{{- end }}
+{{- if and .Values.database.enabled .Values.database.serviceAccount.create -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "scrummate.database.serviceAccountName" . }}
+  labels:
+    {{- include "scrummate.database.labels" . | nindent 4 }}
+  {{- with .Values.database.serviceAccount.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+---
+{{- end }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "scrummate.fullname" . }}-backend-role
+  labels:
+    {{- include "scrummate.backend.labels" . | nindent 4 }}
+rules:
+- apiGroups: [""]
+  resources: ["configmaps", "secrets"]
+  verbs: ["get", "list"]
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "scrummate.fullname" . }}-backend-rolebinding
+  labels:
+    {{- include "scrummate.backend.labels" . | nindent 4 }}
+subjects:
+- kind: ServiceAccount
+  name: {{ include "scrummate.backend.serviceAccountName" . }}
+  namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: Role
+  name: {{ include "scrummate.fullname" . }}-backend-role
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}
