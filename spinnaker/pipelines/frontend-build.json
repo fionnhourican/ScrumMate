@@ -1,0 +1,107 @@
+{
+  "application": "scrummate",
+  "name": "Frontend Build Pipeline",
+  "description": "Build, test, and publish ScrumMate frontend",
+  "triggers": [
+    {
+      "enabled": true,
+      "type": "git",
+      "source": "github",
+      "project": "ScrumMate",
+      "slug": "ScrumMate",
+      "branch": "main",
+      "runAsUser": "spinnaker",
+      "expectedArtifacts": [
+        {
+          "defaultArtifact": {
+            "customKind": true,
+            "id": "frontend-source"
+          },
+          "displayName": "Frontend Source",
+          "id": "frontend-source",
+          "matchArtifact": {
+            "type": "git/repo"
+          }
+        }
+      ]
+    }
+  ],
+  "stages": [
+    {
+      "name": "NPM Build",
+      "type": "bake",
+      "refId": "1",
+      "requisiteStageRefIds": [],
+      "templateRenderer": "docker",
+      "baseOs": "ubuntu",
+      "baseLabel": "RELEASE",
+      "cloudProviderType": "kubernetes",
+      "extendedAttributes": {
+        "dockerfile": "FROM node:18-alpine\nWORKDIR /app\nCOPY frontend/package*.json ./\nRUN npm ci\nCOPY frontend/ .\nRUN npm run build"
+      }
+    },
+    {
+      "name": "Unit Tests",
+      "type": "jenkins",
+      "refId": "2",
+      "requisiteStageRefIds": ["1"],
+      "job": "frontend-unit-tests",
+      "master": "jenkins-master",
+      "parameters": {
+        "BRANCH": "${trigger.branch}"
+      }
+    },
+    {
+      "name": "Build Docker Image",
+      "type": "bake",
+      "refId": "3",
+      "requisiteStageRefIds": ["2"],
+      "templateRenderer": "docker",
+      "baseOs": "ubuntu",
+      "baseLabel": "RELEASE",
+      "cloudProviderType": "kubernetes",
+      "extendedAttributes": {
+        "dockerfile": "FROM nginx:alpine\nCOPY build/ /usr/share/nginx/html/\nCOPY nginx.conf /etc/nginx/nginx.conf\nEXPOSE 80\nCMD [\"nginx\", \"-g\", \"daemon off;\"]"
+      },
+      "outputName": "scrummate/frontend:${trigger.buildNumber}"
+    },
+    {
+      "name": "Security Scan",
+      "type": "jenkins",
+      "refId": "4",
+      "requisiteStageRefIds": ["3"],
+      "job": "security-scan",
+      "master": "jenkins-master",
+      "parameters": {
+        "IMAGE": "scrummate/frontend:${trigger.buildNumber}"
+      }
+    },
+    {
+      "name": "Publish Artifacts",
+      "type": "jenkins",
+      "refId": "5",
+      "requisiteStageRefIds": ["4"],
+      "job": "publish-docker-image",
+      "master": "jenkins-master",
+      "parameters": {
+        "IMAGE": "scrummate/frontend:${trigger.buildNumber}",
+        "REGISTRY": "docker.io"
+      }
+    }
+  ],
+  "expectedArtifacts": [
+    {
+      "defaultArtifact": {
+        "customKind": true,
+        "id": "frontend-docker-image"
+      },
+      "displayName": "Frontend Docker Image",
+      "id": "frontend-docker-image",
+      "matchArtifact": {
+        "artifactAccount": "docker-registry",
+        "name": "scrummate/frontend",
+        "type": "docker/image"
+      }
+    }
+  ]
+}

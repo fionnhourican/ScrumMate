@@ -1,0 +1,257 @@
+{
+  "application": "scrummate",
+  "name": "Deployment Strategies Pipeline",
+  "description": "Advanced deployment strategies for ScrumMate",
+  "parameterConfig": [
+    {
+      "name": "strategy",
+      "description": "Deployment strategy",
+      "default": "rolling",
+      "hasOptions": true,
+      "options": [
+        {"value": "rolling"},
+        {"value": "blue-green"},
+        {"value": "canary"}
+      ]
+    },
+    {
+      "name": "imageTag",
+      "description": "Image tag to deploy",
+      "default": "latest"
+    }
+  ],
+  "stages": [
+    {
+      "name": "Blue-Green Deployment",
+      "type": "deployManifest",
+      "refId": "1",
+      "requisiteStageRefIds": [],
+      "account": "scrummate-cluster",
+      "cloudProvider": "kubernetes",
+      "source": "text",
+      "manifests": [
+        {
+          "apiVersion": "argoproj.io/v1alpha1",
+          "kind": "Rollout",
+          "metadata": {
+            "name": "scrummate-backend-rollout",
+            "namespace": "scrummate-prod"
+          },
+          "spec": {
+            "replicas": 3,
+            "strategy": {
+              "blueGreen": {
+                "activeService": "scrummate-backend-active",
+                "previewService": "scrummate-backend-preview",
+                "autoPromotionEnabled": false,
+                "scaleDownDelaySeconds": 30,
+                "prePromotionAnalysis": {
+                  "templates": [
+                    {
+                      "templateName": "success-rate"
+                    }
+                  ],
+                  "args": [
+                    {
+                      "name": "service-name",
+                      "value": "scrummate-backend-preview"
+                    }
+                  ]
+                }
+              }
+            },
+            "selector": {
+              "matchLabels": {
+                "app": "scrummate-backend"
+              }
+            },
+            "template": {
+              "metadata": {
+                "labels": {
+                  "app": "scrummate-backend"
+                }
+              },
+              "spec": {
+                "containers": [
+                  {
+                    "name": "backend",
+                    "image": "scrummate/backend:${parameters.imageTag}",
+                    "ports": [{"containerPort": 8080}]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "stageEnabled": {
+        "expression": "parameters.strategy == 'blue-green'",
+        "type": "expression"
+      }
+    },
+    {
+      "name": "Canary Deployment",
+      "type": "deployManifest",
+      "refId": "2",
+      "requisiteStageRefIds": [],
+      "account": "scrummate-cluster",
+      "cloudProvider": "kubernetes",
+      "source": "text",
+      "manifests": [
+        {
+          "apiVersion": "argoproj.io/v1alpha1",
+          "kind": "Rollout",
+          "metadata": {
+            "name": "scrummate-backend-canary",
+            "namespace": "scrummate-prod"
+          },
+          "spec": {
+            "replicas": 3,
+            "strategy": {
+              "canary": {
+                "steps": [
+                  {"setWeight": 20},
+                  {"pause": {"duration": "1m"}},
+                  {"setWeight": 40},
+                  {"pause": {"duration": "2m"}},
+                  {"setWeight": 60},
+                  {"pause": {"duration": "2m"}},
+                  {"setWeight": 80},
+                  {"pause": {"duration": "1m"}}
+                ],
+                "trafficRouting": {
+                  "istio": {
+                    "virtualService": {
+                      "name": "scrummate-backend-vs"
+                    }
+                  }
+                },
+                "analysis": {
+                  "templates": [
+                    {
+                      "templateName": "success-rate"
+                    },
+                    {
+                      "templateName": "avg-response-time"
+                    }
+                  ],
+                  "startingStep": 2,
+                  "args": [
+                    {
+                      "name": "service-name",
+                      "value": "scrummate-backend"
+                    }
+                  ]
+                }
+              }
+            },
+            "selector": {
+              "matchLabels": {
+                "app": "scrummate-backend"
+              }
+            },
+            "template": {
+              "metadata": {
+                "labels": {
+                  "app": "scrummate-backend"
+                }
+              },
+              "spec": {
+                "containers": [
+                  {
+                    "name": "backend",
+                    "image": "scrummate/backend:${parameters.imageTag}",
+                    "ports": [{"containerPort": 8080}]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "stageEnabled": {
+        "expression": "parameters.strategy == 'canary'",
+        "type": "expression"
+      }
+    },
+    {
+      "name": "Rolling Update",
+      "type": "deployManifest",
+      "refId": "3",
+      "requisiteStageRefIds": [],
+      "account": "scrummate-cluster",
+      "cloudProvider": "kubernetes",
+      "source": "text",
+      "manifests": [
+        {
+          "apiVersion": "apps/v1",
+          "kind": "Deployment",
+          "metadata": {
+            "name": "scrummate-backend",
+            "namespace": "scrummate-prod"
+          },
+          "spec": {
+            "replicas": 3,
+            "strategy": {
+              "type": "RollingUpdate",
+              "rollingUpdate": {
+                "maxUnavailable": 1,
+                "maxSurge": 1
+              }
+            },
+            "selector": {
+              "matchLabels": {
+                "app": "scrummate-backend"
+              }
+            },
+            "template": {
+              "metadata": {
+                "labels": {
+                  "app": "scrummate-backend"
+                }
+              },
+              "spec": {
+                "containers": [
+                  {
+                    "name": "backend",
+                    "image": "scrummate/backend:${parameters.imageTag}",
+                    "ports": [{"containerPort": 8080}]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "stageEnabled": {
+        "expression": "parameters.strategy == 'rolling'",
+        "type": "expression"
+      }
+    },
+    {
+      "name": "Performance Tests",
+      "type": "jenkins",
+      "refId": "4",
+      "requisiteStageRefIds": ["1", "2", "3"],
+      "job": "performance-tests",
+      "master": "jenkins-master",
+      "parameters": {
+        "ENVIRONMENT": "prod",
+        "STRATEGY": "${parameters.strategy}",
+        "DURATION": "5m"
+      }
+    },
+    {
+      "name": "End-to-End Tests",
+      "type": "jenkins",
+      "refId": "5",
+      "requisiteStageRefIds": ["4"],
+      "job": "e2e-tests",
+      "master": "jenkins-master",
+      "parameters": {
+        "ENVIRONMENT": "prod",
+        "BROWSER": "chrome"
+      }
+    }
+  ]
+}

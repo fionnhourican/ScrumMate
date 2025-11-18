@@ -1,0 +1,107 @@
+{
+  "application": "scrummate",
+  "name": "Backend Build Pipeline",
+  "description": "Build, test, and publish ScrumMate backend",
+  "triggers": [
+    {
+      "enabled": true,
+      "type": "git",
+      "source": "github",
+      "project": "ScrumMate",
+      "slug": "ScrumMate",
+      "branch": "main",
+      "runAsUser": "spinnaker",
+      "expectedArtifacts": [
+        {
+          "defaultArtifact": {
+            "customKind": true,
+            "id": "backend-source"
+          },
+          "displayName": "Backend Source",
+          "id": "backend-source",
+          "matchArtifact": {
+            "type": "git/repo"
+          }
+        }
+      ]
+    }
+  ],
+  "stages": [
+    {
+      "name": "Maven Build",
+      "type": "bake",
+      "refId": "1",
+      "requisiteStageRefIds": [],
+      "templateRenderer": "docker",
+      "baseOs": "ubuntu",
+      "baseLabel": "RELEASE",
+      "cloudProviderType": "kubernetes",
+      "extendedAttributes": {
+        "dockerfile": "FROM maven:3.9-openjdk-17\nWORKDIR /app\nCOPY backend/pom.xml .\nRUN mvn dependency:go-offline\nCOPY backend/src ./src\nRUN mvn clean package -DskipTests=false"
+      }
+    },
+    {
+      "name": "Unit Tests",
+      "type": "jenkins",
+      "refId": "2",
+      "requisiteStageRefIds": ["1"],
+      "job": "backend-unit-tests",
+      "master": "jenkins-master",
+      "parameters": {
+        "BRANCH": "${trigger.branch}"
+      }
+    },
+    {
+      "name": "Build Docker Image",
+      "type": "bake",
+      "refId": "3",
+      "requisiteStageRefIds": ["2"],
+      "templateRenderer": "docker",
+      "baseOs": "ubuntu",
+      "baseLabel": "RELEASE",
+      "cloudProviderType": "kubernetes",
+      "extendedAttributes": {
+        "dockerfile": "FROM openjdk:17-jre-slim\nWORKDIR /app\nCOPY target/*.jar app.jar\nEXPOSE 8080\nCMD [\"java\", \"-jar\", \"app.jar\"]"
+      },
+      "outputName": "scrummate/backend:${trigger.buildNumber}"
+    },
+    {
+      "name": "Security Scan",
+      "type": "jenkins",
+      "refId": "4",
+      "requisiteStageRefIds": ["3"],
+      "job": "security-scan",
+      "master": "jenkins-master",
+      "parameters": {
+        "IMAGE": "scrummate/backend:${trigger.buildNumber}"
+      }
+    },
+    {
+      "name": "Publish Artifacts",
+      "type": "jenkins",
+      "refId": "5",
+      "requisiteStageRefIds": ["4"],
+      "job": "publish-docker-image",
+      "master": "jenkins-master",
+      "parameters": {
+        "IMAGE": "scrummate/backend:${trigger.buildNumber}",
+        "REGISTRY": "docker.io"
+      }
+    }
+  ],
+  "expectedArtifacts": [
+    {
+      "defaultArtifact": {
+        "customKind": true,
+        "id": "backend-docker-image"
+      },
+      "displayName": "Backend Docker Image",
+      "id": "backend-docker-image",
+      "matchArtifact": {
+        "artifactAccount": "docker-registry",
+        "name": "scrummate/backend",
+        "type": "docker/image"
+      }
+    }
+  ]
+}

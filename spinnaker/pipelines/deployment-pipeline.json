@@ -1,0 +1,262 @@
+{
+  "application": "scrummate",
+  "name": "Deployment Pipeline",
+  "description": "Deploy ScrumMate to all environments",
+  "parameterConfig": [
+    {
+      "name": "backendImage",
+      "description": "Backend Docker image tag",
+      "default": "latest"
+    },
+    {
+      "name": "frontendImage", 
+      "description": "Frontend Docker image tag",
+      "default": "latest"
+    }
+  ],
+  "triggers": [
+    {
+      "enabled": true,
+      "type": "pipeline",
+      "application": "scrummate",
+      "pipeline": "Backend Build Pipeline",
+      "status": ["successful"],
+      "runAsUser": "spinnaker"
+    },
+    {
+      "enabled": true,
+      "type": "pipeline",
+      "application": "scrummate",
+      "pipeline": "Frontend Build Pipeline", 
+      "status": ["successful"],
+      "runAsUser": "spinnaker"
+    }
+  ],
+  "stages": [
+    {
+      "name": "Resolve Artifacts",
+      "type": "findArtifactsFromExecution",
+      "refId": "1",
+      "requisiteStageRefIds": [],
+      "pipeline": "${trigger.parentPipelineId}",
+      "expectedArtifacts": [
+        {
+          "id": "backend-image",
+          "displayName": "Backend Image"
+        },
+        {
+          "id": "frontend-image", 
+          "displayName": "Frontend Image"
+        }
+      ]
+    },
+    {
+      "name": "Deploy to Development",
+      "type": "deployManifest",
+      "refId": "2",
+      "requisiteStageRefIds": ["1"],
+      "account": "scrummate-cluster",
+      "cloudProvider": "kubernetes",
+      "source": "text",
+      "manifests": [
+        {
+          "apiVersion": "apps/v1",
+          "kind": "Deployment",
+          "metadata": {
+            "name": "scrummate-backend",
+            "namespace": "scrummate-dev"
+          },
+          "spec": {
+            "replicas": 1,
+            "selector": {
+              "matchLabels": {
+                "app": "scrummate-backend"
+              }
+            },
+            "template": {
+              "metadata": {
+                "labels": {
+                  "app": "scrummate-backend"
+                }
+              },
+              "spec": {
+                "containers": [
+                  {
+                    "name": "backend",
+                    "image": "scrummate/backend:${parameters.backendImage}",
+                    "ports": [{"containerPort": 8080}]
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "apiVersion": "apps/v1",
+          "kind": "Deployment", 
+          "metadata": {
+            "name": "scrummate-frontend",
+            "namespace": "scrummate-dev"
+          },
+          "spec": {
+            "replicas": 1,
+            "selector": {
+              "matchLabels": {
+                "app": "scrummate-frontend"
+              }
+            },
+            "template": {
+              "metadata": {
+                "labels": {
+                  "app": "scrummate-frontend"
+                }
+              },
+              "spec": {
+                "containers": [
+                  {
+                    "name": "frontend",
+                    "image": "scrummate/frontend:${parameters.frontendImage}",
+                    "ports": [{"containerPort": 80}]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Integration Tests",
+      "type": "jenkins",
+      "refId": "3",
+      "requisiteStageRefIds": ["2"],
+      "job": "integration-tests",
+      "master": "jenkins-master",
+      "parameters": {
+        "ENVIRONMENT": "dev",
+        "BACKEND_URL": "http://scrummate-backend.scrummate-dev:8080",
+        "FRONTEND_URL": "http://scrummate-frontend.scrummate-dev"
+      }
+    },
+    {
+      "name": "Manual Approval - Staging",
+      "type": "manualJudgment",
+      "refId": "4",
+      "requisiteStageRefIds": ["3"],
+      "instructions": "Approve deployment to staging environment",
+      "judgmentInputs": [
+        {"value": "approve"},
+        {"value": "reject"}
+      ]
+    },
+    {
+      "name": "Deploy to Staging",
+      "type": "deployManifest",
+      "refId": "5",
+      "requisiteStageRefIds": ["4"],
+      "account": "scrummate-cluster",
+      "cloudProvider": "kubernetes",
+      "source": "text",
+      "manifests": [
+        {
+          "apiVersion": "apps/v1",
+          "kind": "Deployment",
+          "metadata": {
+            "name": "scrummate-backend",
+            "namespace": "scrummate-staging"
+          },
+          "spec": {
+            "replicas": 2,
+            "selector": {
+              "matchLabels": {
+                "app": "scrummate-backend"
+              }
+            },
+            "template": {
+              "metadata": {
+                "labels": {
+                  "app": "scrummate-backend"
+                }
+              },
+              "spec": {
+                "containers": [
+                  {
+                    "name": "backend",
+                    "image": "scrummate/backend:${parameters.backendImage}",
+                    "ports": [{"containerPort": 8080}]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Smoke Tests",
+      "type": "jenkins",
+      "refId": "6",
+      "requisiteStageRefIds": ["5"],
+      "job": "smoke-tests",
+      "master": "jenkins-master",
+      "parameters": {
+        "ENVIRONMENT": "staging",
+        "BACKEND_URL": "http://scrummate-backend.scrummate-staging:8080"
+      }
+    },
+    {
+      "name": "Manual Approval - Production",
+      "type": "manualJudgment",
+      "refId": "7",
+      "requisiteStageRefIds": ["6"],
+      "instructions": "Approve deployment to production environment",
+      "judgmentInputs": [
+        {"value": "approve"},
+        {"value": "reject"}
+      ]
+    },
+    {
+      "name": "Deploy to Production",
+      "type": "deployManifest",
+      "refId": "8",
+      "requisiteStageRefIds": ["7"],
+      "account": "scrummate-cluster",
+      "cloudProvider": "kubernetes",
+      "source": "text",
+      "manifests": [
+        {
+          "apiVersion": "apps/v1",
+          "kind": "Deployment",
+          "metadata": {
+            "name": "scrummate-backend",
+            "namespace": "scrummate-prod"
+          },
+          "spec": {
+            "replicas": 3,
+            "selector": {
+              "matchLabels": {
+                "app": "scrummate-backend"
+              }
+            },
+            "template": {
+              "metadata": {
+                "labels": {
+                  "app": "scrummate-backend"
+                }
+              },
+              "spec": {
+                "containers": [
+                  {
+                    "name": "backend",
+                    "image": "scrummate/backend:${parameters.backendImage}",
+                    "ports": [{"containerPort": 8080}]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
